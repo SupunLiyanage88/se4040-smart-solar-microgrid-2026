@@ -1,0 +1,21 @@
+# .NET build output
+**/bin/
+**/obj/
+.vs/
+
+# JavaScript dependencies and build output
+**/node_modules/
+**/dist/
+
+# Local environment files and secrets
+**/.env
+**/.env.*
+!**/.env.example
+
+# IDE and operating system files
+.idea/
+.vscode/
+*.suo
+.DS_Store
+Thumbs.db
+
