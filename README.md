@@ -2,7 +2,7 @@
 
 SE4040 - Enterprise Application Development | Year 4, Semester 2 | Assignment 1, 2026
 
-**Status: planning only. Application development has not started in this repository.**
+**Status: project scaffold and local MongoDB integration initialized; domain feature development has not started.**
 
 - Repository: https://github.com/SupunLiyanage88/se4040-smart-solar-microgrid-2026
 - Team: four members; names, IT numbers and GitHub handles to be completed by the team.
@@ -11,6 +11,31 @@ SE4040 - Enterprise Application Development | Year 4, Semester 2 | Assignment 1,
 - Source: supplied **EAD_SE4040_Assignment_2026.pdf**, pages 1-9. Page references below refer to that brief. The original PDF is not included here.
 
 This README is an initial planning proposal for team review. Assignment requirements are distinguished from proposed design choices and unresolved questions. All implementation and delivery checkboxes remain open.
+
+## Local development
+
+Prerequisites: .NET 10 SDK, Node.js, and MongoDB listening on `localhost:27017`.
+
+Start the API from the repository root:
+
+```powershell
+dotnet restore SmartSolarMicrogrid.slnx
+dotnet run --project backend/SmartSolarMicrogrid.Api --launch-profile http
+```
+
+Verify the real MongoDB connection at `http://localhost:5086/api/health`. A successful response identifies the `smart_solar_microgrid` database and reports `Healthy`.
+
+Development defaults are stored in `appsettings.Development.json`. The backend `.env.example` documents the equivalent environment variable names for deployment and overrides. ASP.NET Core reads process environment variables directly and does not automatically load `.env` files.
+
+Start the web client in another terminal:
+
+```powershell
+Set-Location web
+npm install
+npm run dev
+```
+
+The default local CORS policy permits the Vite client at `http://localhost:5173`. Never commit real credentials, tokens, or production connection strings.
 
 ## 1. Outcome and required architecture
 
