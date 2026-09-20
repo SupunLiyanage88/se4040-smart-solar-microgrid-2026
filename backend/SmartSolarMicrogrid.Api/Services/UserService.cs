@@ -1,0 +1,69 @@
+// Smart Solar Microgrid Trading System
+// MongoDB data access and mapping for users.
+
+using MongoDB.Driver;
+using SmartSolarMicrogrid.Api.DTO.UserDTO;
+using SmartSolarMicrogrid.Api.Interfaces;
+using SmartSolarMicrogrid.Api.Models;
+
+namespace SmartSolarMicrogrid.Api.Services;
+
+public class UserService : IUserInterface
+{
+    private readonly IMongoCollection<User> _users;
+
+    public UserService(IMongoDatabase database)
+    {
+        _users = database.GetCollection<User>("users");
+
+        // Enforce uniqueness of email and NIC at the database level.
+        _users.Indexes.CreateMany(
+            [
+                new CreateIndexModel<User>(
+                    Builders<User>.IndexKeys.Ascending(u => u.Email),
+                    new CreateIndexOptions { Unique = true }
+                ),
+                new CreateIndexModel<User>(
+                    Builders<User>.IndexKeys.Ascending(u => u.NIC),
+                    new CreateIndexOptions { Unique = true }
+                ),
+            ]
+        );
+    }
+
+    public async Task<User?> GetByIdAsync(string id, CancellationToken ct = default) =>
+        await _users.Find(u => u.Id == id).FirstOrDefaultAsync(ct);
+
+    public async Task<User?> GetByEmailAsync(string email, CancellationToken ct = default)
+    {
+        var normalized = email.ToLowerInvariant();
+        return await _users.Find(u => u.Email == normalized).FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<List<User>> GetAllAsync(CancellationToken ct = default) =>
+        await _users.Find(_ => true).ToListAsync(ct);
+
+    public async Task<User> CreateAsync(User user, CancellationToken ct = default)
+    {
+        user.Email = user.Email.ToLowerInvariant();
+        await _users.InsertOneAsync(user, cancellationToken: ct);
+        return user;
+    }
+
+    public async Task<bool> ExistsAsync(string email, string nic, CancellationToken ct = default)
+    {
+        var normalized = email.ToLowerInvariant();
+        return await _users.Find(u => u.Email == normalized || u.NIC == nic).AnyAsync(ct);
+    }
+
+    public UserResponseDTO ToResponse(User user) =>
+        new()
+        {
+            Id = user.Id ?? string.Empty,
+            UserName = user.UserName,
+            Email = user.Email,
+            NIC = user.NIC,
+            Role = user.Role,
+            Activation = user.Activation,
+        };
+}

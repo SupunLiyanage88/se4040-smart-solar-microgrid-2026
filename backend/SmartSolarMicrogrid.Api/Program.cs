@@ -1,14 +1,47 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using MongoDB.Bson;
+using Microsoft.OpenApi;
 using MongoDB.Driver;
 using SmartSolarMicrogrid.Api.Configuration;
+using SmartSolarMicrogrid.Api.DTO.UnauthorizedDTO;
+using SmartSolarMicrogrid.Api.Interfaces;
+using SmartSolarMicrogrid.Api.Services;
+
+// Load .env (if present) into environment variables before configuration is built.
+DotNetEnv.Env.TraversePath().Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    // Declare the JWT bearer scheme so Swagger UI shows an Authorize button.
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Components ??= new OpenApiComponents();
+        document.Components.SecuritySchemes = new Dictionary<string, IOpenApiSecurityScheme>
+        {
+            ["Bearer"] = new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT"
+            }
+        };
+        document.Security = [new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference("Bearer", document)] = []
+        }];
+        return Task.CompletedTask;
+    });
+});
 
 builder.Services.AddOptions<MongoDbOptions>()
     .Bind(builder.Configuration.GetSection(MongoDbOptions.SectionName))
@@ -33,6 +66,52 @@ builder.Services.AddSingleton(serviceProvider =>
     return client.GetDatabase(options.DatabaseName);
 });
 
+builder.Services.AddScoped<IUserInterface, UserService>();
+builder.Services.AddScoped<IAuthInterface, AuthService>();
+builder.Services.AddScoped<IBackOfficeInterface, BackOfficeService>();
+
+builder.Services.AddOptions<JwtOptions>()
+    .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
+    .Validate(options => options.Key.Length >= 32, "Jwt:Key must be at least 32 characters.")
+    .ValidateOnStart();
+
+var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwt.Issuer,
+            ValidAudience = jwt.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
+            RoleClaimType = ClaimTypes.Role,
+            NameClaimType = JwtRegisteredClaimNames.Sub
+        };
+        options.Events = new JwtBearerEvents
+        {
+            // Replace the default empty 401 with a JSON body for missing/invalid/expired tokens.
+            OnChallenge = async context =>
+            {
+                context.HandleResponse();
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new UnAuthorizedResponseDTO());
+            },
+            // A valid token without the required role would otherwise get an empty 403;
+            // report it as the same 401 Unauthorized response.
+            OnForbidden = async context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new UnAuthorizedResponseDTO());
+            }
+        };
+    });
+builder.Services.AddAuthorization();
+
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options =>
 {
@@ -49,6 +128,11 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/openapi/v1.json", "Smart Solar Microgrid API v1");
+        options.RoutePrefix = "swagger";
+    });
 }
 
 if (!app.Environment.IsDevelopment())
@@ -58,11 +142,12 @@ if (!app.Environment.IsDevelopment())
 
 app.UseCors();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
-app.MapGet("/api/health", async (IMongoDatabase database, CancellationToken cancellationToken) =>
+app.MapGet("/", async (IMongoDatabase database, CancellationToken cancellationToken) =>
 {
     // Ping MongoDB so this endpoint verifies the real database connection.
     await database.RunCommandAsync<BsonDocument>(
