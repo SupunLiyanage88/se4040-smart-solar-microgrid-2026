@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SmartSolarMicrogrid.Api.DTO.AuthDTO;
+using SmartSolarMicrogrid.Api.DTO.UnauthorizedDTO;
 using SmartSolarMicrogrid.Api.DTO.UserDTO;
 using SmartSolarMicrogrid.Api.Interfaces;
 using SmartSolarMicrogrid.Api.Services;
@@ -55,7 +56,7 @@ public class AuthController : ControllerBase
     {
         var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
         if (userId is null)
-            return Unauthorized();
+            return Unauthorized(new UnAuthorizedResponseDTO());
 
         var user = await _authService.GetCurrentUserAsync(userId, ct);
         return user is null ? NotFound() : Ok(user);

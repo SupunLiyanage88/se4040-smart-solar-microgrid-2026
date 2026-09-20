@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SmartSolarMicrogrid.Api.DTO.UnauthorizedDTO;
 using SmartSolarMicrogrid.Api.DTO.UserDTO;
 using SmartSolarMicrogrid.Api.Interfaces;
 using SmartSolarMicrogrid.Api.Services;
@@ -10,6 +11,7 @@ namespace SmartSolarMicrogrid.Api.Controllers;
 [ApiController]
 [Route("api/users")]
 [Authorize(Roles = "BACKOFFICE")]
+[ProducesResponseType(typeof(UnAuthorizedResponseDTO), StatusCodes.Status401Unauthorized)]
 public class UserController : ControllerBase
 {
     private readonly IUserInterface _userService;

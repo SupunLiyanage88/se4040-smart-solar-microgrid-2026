@@ -78,6 +78,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 context.HandleResponse();
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 await context.Response.WriteAsJsonAsync(new UnAuthorizedResponseDTO());
+            },
+            // A valid token without the required role would otherwise get an empty 403;
+            // report it as the same 401 Unauthorized response.
+            OnForbidden = async context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new UnAuthorizedResponseDTO());
             }
         };
     });

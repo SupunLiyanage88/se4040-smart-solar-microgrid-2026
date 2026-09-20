@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SmartSolarMicrogrid.Api.DTO.UnauthorizedDTO;
 using SmartSolarMicrogrid.Api.Interfaces;
 
 [ApiController]
 [Route("api/back-office")]
 [Authorize(Roles = "BACKOFFICE")]
+[ProducesResponseType(typeof(UnAuthorizedResponseDTO), StatusCodes.Status401Unauthorized)]
 public class BackOfficeController : ControllerBase
 {
     private readonly IBackOfficeInterface _backOfficeService;
