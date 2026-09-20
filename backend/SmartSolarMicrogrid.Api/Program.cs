@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using MongoDB.Bson;
+using Microsoft.OpenApi;
 using MongoDB.Driver;
 using SmartSolarMicrogrid.Api.Configuration;
 using SmartSolarMicrogrid.Api.DTO.UnauthorizedDTO;
@@ -19,7 +20,28 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    // Declare the JWT bearer scheme so Swagger UI shows an Authorize button.
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Components ??= new OpenApiComponents();
+        document.Components.SecuritySchemes = new Dictionary<string, IOpenApiSecurityScheme>
+        {
+            ["Bearer"] = new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT"
+            }
+        };
+        document.Security = [new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference("Bearer", document)] = []
+        }];
+        return Task.CompletedTask;
+    });
+});
 
 builder.Services.AddOptions<MongoDbOptions>()
     .Bind(builder.Configuration.GetSection(MongoDbOptions.SectionName))
@@ -106,6 +128,11 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/openapi/v1.json", "Smart Solar Microgrid API v1");
+        options.RoutePrefix = "swagger";
+    });
 }
 
 if (!app.Environment.IsDevelopment())
