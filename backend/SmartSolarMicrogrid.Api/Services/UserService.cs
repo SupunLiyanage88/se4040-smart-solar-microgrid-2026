@@ -50,20 +50,6 @@ public class UserService : IUserInterface
         return user;
     }
 
-    public async Task<bool> SetActivationAsync(
-        string id,
-        bool activation,
-        CancellationToken ct = default
-    )
-    {
-        var result = await _users.UpdateOneAsync(
-            u => u.Id == id,
-            Builders<User>.Update.Set(u => u.Activation, activation),
-            cancellationToken: ct
-        );
-        return result.MatchedCount > 0;
-    }
-
     public async Task<bool> ExistsAsync(string email, string nic, CancellationToken ct = default)
     {
         var normalized = email.ToLowerInvariant();

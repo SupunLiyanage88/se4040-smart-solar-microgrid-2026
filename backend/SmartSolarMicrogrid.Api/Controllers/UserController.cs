@@ -31,11 +31,4 @@ public class UserController : ControllerBase
         var user = await _userService.GetByIdAsync(id, ct);
         return user is null ? NotFound() : Ok(_userService.ToResponse(user));
     }
-
-    [HttpPatch("{id}/activation")]
-    public async Task<IActionResult> SetActivation(
-        string id,
-        [FromQuery] bool active,
-        CancellationToken ct
-    ) => await _userService.SetActivationAsync(id, active, ct) ? NoContent() : NotFound();
 }

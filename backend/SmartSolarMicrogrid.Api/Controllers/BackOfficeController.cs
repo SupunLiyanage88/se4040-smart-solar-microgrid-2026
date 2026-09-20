@@ -22,7 +22,7 @@ public class BackOfficeController : ControllerBase
         CancellationToken ct
     ) =>
         await _backOfficeService.ActivateDeactivateUserByOfficerAsync(id, active, ct)
-            ? NoContent()
-            : NotFound();
+            ? Ok(new { message = active ? "User activated successfully." : "User deactivated successfully." })
+            : NotFound(new { message = "User not found." });
 }
 
