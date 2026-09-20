@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SmartSolarMicrogrid.Api.DTO.UserDTO;
+using SmartSolarMicrogrid.Api.Interfaces;
 using SmartSolarMicrogrid.Api.Services;
 
 namespace SmartSolarMicrogrid.Api.Controllers;
@@ -11,9 +12,9 @@ namespace SmartSolarMicrogrid.Api.Controllers;
 [Authorize(Roles = "BACKOFFICE")]
 public class UserController : ControllerBase
 {
-    private readonly IUserService _userService;
+    private readonly IUserInterface _userService;
 
-    public UserController(IUserService userService) => _userService = userService;
+    public UserController(IUserInterface userService) => _userService = userService;
 
     [HttpGet]
     public async Task<ActionResult<IEnumerable<UserResponseDTO>>> GetAll(CancellationToken ct)

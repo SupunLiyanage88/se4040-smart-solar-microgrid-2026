@@ -7,6 +7,8 @@ using Microsoft.IdentityModel.Tokens;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using SmartSolarMicrogrid.Api.Configuration;
+using SmartSolarMicrogrid.Api.DTO.UnauthorizedDTO;
+using SmartSolarMicrogrid.Api.Interfaces;
 using SmartSolarMicrogrid.Api.Services;
 
 // Load .env (if present) into environment variables before configuration is built.
@@ -42,8 +44,9 @@ builder.Services.AddSingleton(serviceProvider =>
     return client.GetDatabase(options.DatabaseName);
 });
 
-builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUserInterface, UserService>();
+builder.Services.AddScoped<IAuthInterface, AuthService>();
+builder.Services.AddScoped<IBackOfficeInterface, BackOfficeService>();
 
 builder.Services.AddOptions<JwtOptions>()
     .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
@@ -66,6 +69,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
             RoleClaimType = ClaimTypes.Role,
             NameClaimType = JwtRegisteredClaimNames.Sub
+        };
+        options.Events = new JwtBearerEvents
+        {
+            // Replace the default empty 401 with a JSON body for missing/invalid/expired tokens.
+            OnChallenge = async context =>
+            {
+                context.HandleResponse();
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new UnAuthorizedResponseDTO());
+            }
         };
     });
 builder.Services.AddAuthorization();
@@ -100,7 +113,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-app.MapGet("/api/health", async (IMongoDatabase database, CancellationToken cancellationToken) =>
+app.MapGet("/", async (IMongoDatabase database, CancellationToken cancellationToken) =>
 {
     // Ping MongoDB so this endpoint verifies the real database connection.
     await database.RunCommandAsync<BsonDocument>(

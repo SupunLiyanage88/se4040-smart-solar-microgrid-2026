@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 using SmartSolarMicrogrid.Api.Configuration;
 using SmartSolarMicrogrid.Api.DTO.AuthDTO;
 using SmartSolarMicrogrid.Api.DTO.UserDTO;
+using SmartSolarMicrogrid.Api.Interfaces;
 using SmartSolarMicrogrid.Api.Models;
 
 namespace SmartSolarMicrogrid.Api.Services;
@@ -22,20 +23,12 @@ public enum LoginStatus
 
 public record LoginResult(LoginStatus Status, LoginResponseDTO? Response = null);
 
-public interface IAuthService
+public class AuthService : IAuthInterface
 {
-    /// <returns>The created user, or null if the email or NIC is already registered.</returns>
-    Task<UserResponseDTO?> RegisterAsync(UserRequestDTO request, CancellationToken ct = default);
-    Task<LoginResult> LoginAsync(LoginRequestDTO request, CancellationToken ct = default);
-    Task<UserResponseDTO?> GetCurrentUserAsync(string userId, CancellationToken ct = default);
-}
-
-public class AuthService : IAuthService
-{
-    private readonly IUserService _userService;
+    private readonly IUserInterface _userService;
     private readonly JwtOptions _jwt;
 
-    public AuthService(IUserService userService, IOptions<JwtOptions> jwt)
+    public AuthService(IUserInterface userService, IOptions<JwtOptions> jwt)
     {
         _userService = userService;
         _jwt = jwt.Value;

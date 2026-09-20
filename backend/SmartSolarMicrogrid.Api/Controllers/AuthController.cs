@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SmartSolarMicrogrid.Api.DTO.AuthDTO;
 using SmartSolarMicrogrid.Api.DTO.UserDTO;
+using SmartSolarMicrogrid.Api.Interfaces;
 using SmartSolarMicrogrid.Api.Services;
 
 namespace SmartSolarMicrogrid.Api.Controllers;
@@ -12,9 +13,9 @@ namespace SmartSolarMicrogrid.Api.Controllers;
 [Route("api")]
 public class AuthController : ControllerBase
 {
-    private readonly IAuthService _authService;
+    private readonly IAuthInterface _authService;
 
-    public AuthController(IAuthService authService) => _authService = authService;
+    public AuthController(IAuthInterface authService) => _authService = authService;
 
     [HttpPost("register")]
     public async Task<ActionResult<UserResponseDTO>> Register(
@@ -48,6 +49,7 @@ public class AuthController : ControllerBase
     }
 
     [Authorize]
+    [ProducesResponseType(typeof(UnAuthorizedResponseDTO), StatusCodes.Status401Unauthorized)]
     [HttpGet("user")]
     public async Task<ActionResult<UserResponseDTO>> GetCurrentUser(CancellationToken ct)
     {

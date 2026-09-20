@@ -3,22 +3,12 @@
 
 using MongoDB.Driver;
 using SmartSolarMicrogrid.Api.DTO.UserDTO;
+using SmartSolarMicrogrid.Api.Interfaces;
 using SmartSolarMicrogrid.Api.Models;
 
 namespace SmartSolarMicrogrid.Api.Services;
 
-public interface IUserService
-{
-    Task<User?> GetByIdAsync(string id, CancellationToken ct = default);
-    Task<User?> GetByEmailAsync(string email, CancellationToken ct = default);
-    Task<List<User>> GetAllAsync(CancellationToken ct = default);
-    Task<User> CreateAsync(User user, CancellationToken ct = default);
-    Task<bool> SetActivationAsync(string id, bool activation, CancellationToken ct = default);
-    Task<bool> ExistsAsync(string email, string nic, CancellationToken ct = default);
-    UserResponseDTO ToResponse(User user);
-}
-
-public class UserService : IUserService
+public class UserService : IUserInterface
 {
     private readonly IMongoCollection<User> _users;
 
