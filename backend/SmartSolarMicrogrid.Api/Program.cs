@@ -1,3 +1,5 @@
+// Smart Solar Microgrid Trading System
+// API composition, authentication enforcement and account maintenance entry points.
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -13,7 +15,7 @@ using SmartSolarMicrogrid.Api.Interfaces;
 using SmartSolarMicrogrid.Api.Services;
 
 // Load .env (if present) into environment variables before configuration is built.
-DotNetEnv.Env.TraversePath().Load();
+DotNetEnv.Env.NoClobber().TraversePath().Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +27,7 @@ builder.Services.AddOpenApi(options =>
     // Declare the JWT bearer scheme so Swagger UI shows an Authorize button.
     options.AddDocumentTransformer((document, _, _) =>
     {
+        // Describe the bearer scheme for interactive API exploration.
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes = new Dictionary<string, IOpenApiSecurityScheme>
         {
@@ -73,18 +76,21 @@ builder.Services.AddScoped<IBackOfficeInterface, BackOfficeService>();
 builder.Services.AddOptions<JwtOptions>()
     .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
     .Validate(options => options.Key.Length >= 32, "Jwt:Key must be at least 32 characters.")
+    .Validate(options => options.ExpiryMinutes is >= 1 and <= 1440, "Jwt:ExpiryMinutes must be between 1 and 1440.")
     .ValidateOnStart();
 
 var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        // Validate token integrity before consulting the account record.
         options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero,
             ValidateIssuerSigningKey = true,
             ValidIssuer = jwt.Issuer,
             ValidAudience = jwt.Audience,
@@ -94,19 +100,31 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
         options.Events = new JwtBearerEvents
         {
+            OnTokenValidated = async context =>
+            {
+                // Recheck current state on every request; status changes revoke all old sessions.
+                var id = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
+                var users = context.HttpContext.RequestServices.GetRequiredService<IUserInterface>();
+                var user = id is null ? null : await users.GetByIdAsync(id, context.HttpContext.RequestAborted);
+                if (user is null || !user.Activation
+                    || context.Principal?.FindFirstValue("session_version") != user.SessionVersion
+                    || context.Principal?.FindFirstValue(ClaimTypes.Role) != user.Role.ToString())
+                    context.Fail("Account is inactive or this session is no longer valid.");
+            },
             // Replace the default empty 401 with a JSON body for missing/invalid/expired tokens.
             OnChallenge = async context =>
             {
+                // Return a predictable JSON error for missing or expired credentials.
                 context.HandleResponse();
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 await context.Response.WriteAsJsonAsync(new UnAuthorizedResponseDTO());
             },
-            // A valid token without the required role would otherwise get an empty 403;
-            // report it as the same 401 Unauthorized response.
+            // Distinguish an authenticated role denial from an invalid login session.
             OnForbidden = async context =>
             {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                await context.Response.WriteAsJsonAsync(new UnAuthorizedResponseDTO());
+                // Clients must not mistake missing permissions for an expired session.
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await context.Response.WriteAsJsonAsync(new { message = "Your role does not permit this operation." });
             }
         };
     });
@@ -123,6 +141,41 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+var database = app.Services.GetRequiredService<IMongoDatabase>();
+if (args.Contains("--migrate-user-identities"))
+{
+    await AccountSetup.MigrateAsync(database);
+    return;
+}
+if (args.Contains("--bootstrap-admin"))
+{
+    await AccountSetup.BootstrapAsync(database, builder.Configuration);
+    return;
+}
+await AccountSetup.InitializeAsync(database);
+
+app.Use(async (context, next) =>
+{
+    // Concurrent duplicate registration/profile updates receive a stable conflict response.
+    try { await next(context); }
+    catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
+    {
+        context.Response.StatusCode = StatusCodes.Status409Conflict;
+        await context.Response.WriteAsJsonAsync(new { message = "Email or NIC is already registered." });
+    }
+    catch (MongoCommandException ex) when (ex.Code == 11000)
+    {
+        context.Response.StatusCode = StatusCodes.Status409Conflict;
+        await context.Response.WriteAsJsonAsync(new { message = "Email or NIC is already registered." });
+    }
+    catch (Exception ex) when (ex is MongoException or TimeoutException)
+    {
+        app.Logger.LogError(ex, "Account database unavailable.");
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        await context.Response.WriteAsJsonAsync(new { message = "Account service is temporarily unavailable. Please retry." });
+    }
+});
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -147,7 +200,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-app.MapGet("/", async (IMongoDatabase database, CancellationToken cancellationToken) =>
+app.MapGet("/api/health", async (IMongoDatabase database, CancellationToken cancellationToken) =>
 {
     // Ping MongoDB so this endpoint verifies the real database connection.
     await database.RunCommandAsync<BsonDocument>(

@@ -1,3 +1,5 @@
+// Smart Solar Microgrid Trading System
+// Public authentication operations.
 using SmartSolarMicrogrid.Api.DTO.AuthDTO;
 using SmartSolarMicrogrid.Api.DTO.UserDTO;
 using SmartSolarMicrogrid.Api.Services;

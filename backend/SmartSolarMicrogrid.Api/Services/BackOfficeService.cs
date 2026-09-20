@@ -1,52 +1,35 @@
-using MongoDB.Driver;
+// Smart Solar Microgrid Trading System
+// Central account creation and lifecycle rules for authorized Backoffice staff.
 using SmartSolarMicrogrid.Api.DTO.UserDTO;
 using SmartSolarMicrogrid.Api.Interfaces;
 using SmartSolarMicrogrid.Api.Models;
-
+namespace SmartSolarMicrogrid.Api.Services;
 public class BackOfficeService : IBackOfficeInterface
 {
-
-    private readonly IMongoCollection<User> _users;
-
-    public BackOfficeService(IMongoDatabase database) =>
-        _users = database.GetCollection<User>("users");
-
-    public async Task<bool> ActivateDeactivateUserByOfficerAsync(
-        string id,
-        bool activation,
-        CancellationToken ct = default
-    )
+    private readonly IUserInterface _users;
+    public BackOfficeService(IUserInterface users)
     {
-        var result = await _users.UpdateOneAsync(
-            u => u.Id == id,
-            Builders<User>.Update.Set(u => u.Activation, activation),
-            cancellationToken: ct
-        );
-        return result.MatchedCount > 0;
+        // Reuse the account repository and its uniqueness rules.
+        _users = users;
     }
-
-    public Task<UserResponseDTO?> CreateUserByOfficerAsync(
-        UserRequestDTO request,
-        CancellationToken ct = default
-    )
+    public async Task<UserResponseDTO?> CreateUserByOfficerAsync(StaffUserRequestDTO request, CancellationToken ct = default)
     {
-        return Task.FromResult<UserResponseDTO?>(null);
+        // Backoffice-created accounts are approved immediately, including prosumers.
+        if (await _users.ExistsAsync(request.Email, request.NIC, ct)) return null;
+        var user = new User { NIC = request.NIC, UserName = request.UserName, Email = request.Email,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password), Role = request.Role!.Value,
+            Activation = true, ActivationPending = false };
+        return _users.ToResponse(await _users.CreateAsync(user, ct));
     }
-
-    public Task<UserResponseDTO?> DeleteUserByOfficerAsync(
-        string userId,
-        CancellationToken ct = default
-    )
+    public async Task<UserResponseDTO?> UpdateUserByOfficerAsync(string userId, ProfileRequestDTO request, CancellationToken ct = default)
     {
-        throw new NotImplementedException();
+        // NIC and role remain immutable to preserve identity and authorization history.
+        var user = await _users.UpdateProfileAsync(userId, request, ct);
+        return user is null ? null : _users.ToResponse(user);
     }
-
-    public Task<UserResponseDTO?> UpdateUserByOfficerAsync(
-        string userId,
-        UserRequestDTO request,
-        CancellationToken ct = default
-    )
+    public Task<bool> ActivateDeactivateUserByOfficerAsync(string userId, bool activation, CancellationToken ct = default)
     {
-        throw new NotImplementedException();
+        // The protected controller restricts this operation to Backoffice.
+        return _users.SetActivationAsync(userId, activation, ct);
     }
 }

@@ -2,7 +2,9 @@
 
 SE4040 - Enterprise Application Development | Year 4, Semester 2 | Assignment 1, 2026
 
-**Status: project scaffold and local MongoDB integration initialized; domain feature development has not started.**
+**Status: authentication and user-management implementation added; other domain features remain scaffolded.**
+
+See [Authentication and user management](docs/auth-user-management.md) for the account rules, existing-user migration, first-officer bootstrap, API contracts and verification commands. This functional implementation is AI-assisted; the guide records the assignment's independent-implementation constraint. The planning checklist below remains historical and is not completion evidence.
 
 - Repository: https://github.com/SupunLiyanage88/se4040-smart-solar-microgrid-2026
 - Team: four members; names, IT numbers and GitHub handles to be completed by the team.
@@ -25,7 +27,7 @@ dotnet run --project backend/SmartSolarMicrogrid.Api --launch-profile http
 
 Verify the real MongoDB connection at `http://localhost:5086/api/health`. A successful response identifies the `smart_solar_microgrid` database and reports `Healthy`.
 
-Development defaults are stored in `appsettings.Development.json`. The backend `.env.example` documents the equivalent environment variable names for deployment and overrides. ASP.NET Core reads process environment variables directly and does not automatically load `.env` files.
+Development defaults are stored in `appsettings.Development.json`. The backend `.env.example` documents the equivalent environment variable names for deployment and overrides. The API loads a local `.env` through DotNetEnv without overriding existing process environment variables.
 
 Start the web client in another terminal:
 
