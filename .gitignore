@@ -20,6 +20,13 @@
 Thumbs.db
 
 
+# Temporary verification outputs
+/tmp/
+
+*.log
+
+/docs
+/tests
 # Claude Code
 CLAUDE.md
 .claude/

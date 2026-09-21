@@ -1,3 +1,5 @@
+// Smart Solar Microgrid Trading System
+// WeatherForecast definitions.
 namespace SmartSolarMicrogrid.Api;
 
 public class WeatherForecast

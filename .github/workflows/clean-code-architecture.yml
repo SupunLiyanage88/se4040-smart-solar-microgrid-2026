@@ -1,0 +1,114 @@
+# Clean Code + Fat-Service Architecture gate.
+#
+# Runs on EVERY branch (push to any branch + PRs targeting any branch) and
+# fails the build when:
+#   1. Backend does not compile warning-free (dotnet build TreatWarningsAsErrors).
+#   2. Backend style/analyzer rules are violated (dotnet format --verify).
+#   3. Frontend types, lint, or build break (tsc, eslint, vite build).
+#   4. The fat-service architecture is violated — business logic must live in
+#      Services/ (backend) and src/api.ts (frontend); controllers/components
+#      stay thin and only delegate. Enforced by check-fat-service.py.
+#
+# Run the same checks locally before pushing:
+#   dotnet build ./backend/SmartSolarMicrogrid.Api -c Release /p:TreatWarningsAsErrors=true
+#   dotnet format style --verify-no-changes        (from backend/SmartSolarMicrogrid.Api)
+#   dotnet format analyzers --verify-no-changes    (from backend/SmartSolarMicrogrid.Api)
+#   npm --prefix web ci && npm --prefix web run lint && npm --prefix web run build
+#   py .github/scripts/check-fat-service.py  (or: python3 .github/scripts/check-fat-service.py)
+
+name: Clean Code + Fat-Service Architecture
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-clean-code:
+    name: Backend clean code (.NET)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore ./backend/SmartSolarMicrogrid.Api
+
+      - name: Build warning-free (clean compile)
+        run: dotnet build ./backend/SmartSolarMicrogrid.Api --no-restore -c Release /p:TreatWarningsAsErrors=true
+
+      - name: Verify code style (no style debt)
+        run: dotnet format style --verify-no-changes --verbosity minimal
+        working-directory: ./backend/SmartSolarMicrogrid.Api
+
+      - name: Verify analyzers (no analyzer debt)
+        run: dotnet format analyzers --verify-no-changes --verbosity minimal
+        working-directory: ./backend/SmartSolarMicrogrid.Api
+
+  frontend-clean-code:
+    name: Frontend clean code (React + TS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ./web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check (tsc)
+        run: npx tsc -b
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Build (vite)
+        run: npm run build
+
+  architecture-fat-service:
+    name: Architecture guard (fat service)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Enforce thin controllers / fat services
+        run: python3 .github/scripts/check-fat-service.py
+
+  quality-gate:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    needs: [backend-clean-code, frontend-clean-code, architecture-fat-service]
+    if: always()
+    steps:
+      - name: Fail if any check failed
+        run: |
+          if [ "${{ needs.backend-clean-code.result }}" != "success" ] || \
+             [ "${{ needs.frontend-clean-code.result }}" != "success" ] || \
+             [ "${{ needs.architecture-fat-service.result }}" != "success" ]; then
+            echo "Quality gate FAILED: clean code or fat-service architecture violated."
+            exit 1
+          fi
+          echo "Quality gate PASSED: clean code + fat-service architecture hold."
