@@ -19,3 +19,11 @@
 .DS_Store
 Thumbs.db
 
+
+# Temporary verification outputs
+/tmp/
+
+*.log
+
+/docs
+/tests

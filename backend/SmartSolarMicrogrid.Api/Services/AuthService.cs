@@ -30,6 +30,7 @@ public class AuthService : IAuthInterface
 
     public AuthService(IUserInterface userService, IOptions<JwtOptions> jwt)
     {
+        // Resolve the repository and JWT configuration.
         _userService = userService;
         _jwt = jwt.Value;
     }
@@ -39,6 +40,7 @@ public class AuthService : IAuthInterface
         CancellationToken ct = default
     )
     {
+        // Public registration always creates a pending prosumer.
         if (await _userService.ExistsAsync(request.Email, request.NIC, ct))
             return null;
 
@@ -48,7 +50,7 @@ public class AuthService : IAuthInterface
             Email = request.Email,
             NIC = request.NIC,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
-            Role = UserRole.PROCUMER,
+            Role = UserRole.PROSUMER,
             Activation = false,
         };
 
@@ -61,6 +63,7 @@ public class AuthService : IAuthInterface
         CancellationToken ct = default
     )
     {
+        // Validate credentials before revealing account activation status.
         var user = await _userService.GetByEmailAsync(request.Email, ct);
         if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             return new LoginResult(LoginStatus.InvalidCredentials);
@@ -74,6 +77,7 @@ public class AuthService : IAuthInterface
             new Claim(JwtRegisteredClaimNames.Sub, user.Id!),
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(ClaimTypes.Role, user.Role.ToString()),
+            new Claim("session_version", user.SessionVersion),
         };
         var creds = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwt.Key)),
@@ -103,6 +107,7 @@ public class AuthService : IAuthInterface
         CancellationToken ct = default
     )
     {
+        // Read the current profile from the authoritative database.
         var user = await _userService.GetByIdAsync(userId, ct);
         return user is null ? null : _userService.ToResponse(user);
     }

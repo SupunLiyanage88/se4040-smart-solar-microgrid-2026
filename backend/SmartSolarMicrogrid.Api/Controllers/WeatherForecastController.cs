@@ -1,3 +1,5 @@
+// Smart Solar Microgrid Trading System
+// WeatherForecastController definitions.
 using Microsoft.AspNetCore.Mvc;
 
 namespace SmartSolarMicrogrid.Api.Controllers;
@@ -14,6 +16,7 @@ public class WeatherForecastController : ControllerBase
     [HttpGet(Name = "GetWeatherForecast")]
     public IEnumerable<WeatherForecast> Get()
     {
+        // Return sample scaffold data; this endpoint performs no business operations.
         return Enumerable.Range(1, 5).Select(index => new WeatherForecast
         {
             Date = DateOnly.FromDateTime(DateTime.Now.AddDays(index)),

@@ -2,7 +2,9 @@
 
 SE4040 - Enterprise Application Development | Year 4, Semester 2 | Assignment 1, 2026
 
-**Status: project scaffold and local MongoDB integration initialized; domain feature development has not started.**
+**Status: authentication, user management and microgrid node management implemented; reservation workflows, QR transfers and maps remain unfinished.**
+
+See [Authentication and user management](docs/auth-user-management.md) for the account rules, existing-user migration, first-officer bootstrap, API contracts and verification commands. This functional implementation is AI-assisted; the guide records the assignment's independent-implementation constraint. The planning checklist below remains historical and is not completion evidence.
 
 - Repository: https://github.com/SupunLiyanage88/se4040-smart-solar-microgrid-2026
 - Team: four members; names, IT numbers and GitHub handles to be completed by the team.
@@ -11,6 +13,49 @@ SE4040 - Enterprise Application Development | Year 4, Semester 2 | Assignment 1,
 - Source: supplied **EAD_SE4040_Assignment_2026.pdf**, pages 1-9. Page references below refer to that brief. The original PDF is not included here.
 
 This README is an initial planning proposal for team review. Assignment requirements are distinguished from proposed design choices and unresolved questions. All implementation and delivery checkboxes remain open.
+
+## Microgrid node management
+
+Backoffice can create/edit grid hubs, set GPS coordinates and an address, define power capacity and battery slots, manage weekly operating hours, and deactivate/reactivate hubs. Grid Operators can view nodes and change physical-slot availability. The web portal now has **Grid nodes** and **User accounts** sections; Grid Operators see only node operations. Authenticated prosumers can read active hubs through the API for future mobile integration.
+
+### Node rules and data
+
+- MongoDB collection: `solar_station_info`. Physical battery slots and schedules are embedded in each hub so a configuration edit is a single atomic document update. Physical slots have stable, server-issued IDs.
+- Power capacity uses **kW**, while individual battery storage capacity uses **kWh**. The assignment says `kW/h`; this implementation distinguishes power from stored energy. Confirm the intended units with the lecturer.
+- Latitude must be between -90 and 90; longitude between -180 and 180. Positive capacities, unique nonblank slot labels, at least one physical slot and at least one operating day are required.
+- Schedules are weekly, in **Asia/Colombo** time: 0=Sunday through 6=Saturday, one `HH:mm` opening/closing interval per selected day. Omitted days are closed; overnight intervals are not supported.
+- Deactivation checks the real `energy_reservations` collection. Reservations reference the hub with BSON `NodeId` and the physical slot with `SlotId`; `Status` uses canonical uppercase strings. Only `COMPLETED`, `CANCELLED` and `REJECTED` are terminal. All other/missing states block deactivation, including `PENDING`, `APPROVED` and `IN_PROGRESS`, regardless of dates.
+- Active reservations also block changes to capacity, physical slots and schedules. Name/address/GPS edits remain allowed. A slot referenced by booking history cannot be removed; it can be marked unavailable once active reservations finish. Hubs are deactivated rather than deleted, preserving history.
+- An unavailable physical slot cannot be offered by the future booking service. The availability flag is an operational setting, not a calculation of free capacity at a particular time.
+- Each mutation requires the current `revision`; stale or simultaneous edits return 409 rather than overwriting newer changes. Only Backoffice can administer hubs; operators have a separate, narrow availability endpoint.
+
+**Reservation integration boundary:** This branch implements the deactivation guard and tests it with seeded reservation records; it does not implement booking creation or its UI. The future reservation writer must use the documented collection/field/status contract, enforce active-node/schedule/slot checks, and coordinate reservation writes with node lifecycle changes (for example through transactions with a shared node revision on a MongoDB replica set). The current cross-collection reservation read and node update are not a transaction; optimistic revisions currently protect concurrent node edits, not concurrent future booking inserts. Physical slots are distinct from future time-based `EnergyBookingSlots` records.
+
+### Node endpoints
+
+| Method/path | Permission | Operation |
+| --- | --- | --- |
+| GET `/api/nodes` | Active account | List hubs; prosumers see active hubs only |
+| GET `/api/nodes/{id}` | Active account | Hub, GPS, physical slots and schedule |
+| POST `/api/nodes` | Backoffice | Create a hub |
+| PUT `/api/nodes/{id}` | Backoffice | Update configuration using current revision |
+| PATCH `/api/nodes/{id}/status` | Backoffice | `{isActive, revision}`; active bookings produce 409 on deactivation |
+| PATCH `/api/nodes/{id}/slots/{slotId}/availability` | Backoffice / Grid Operator | `{isAvailable, revision}` |
+
+Create/update payload fields: `name`, `address`, `latitude`, `longitude`, `powerCapacityKw`, `batterySlots` (`name`, `capacityKwh`, `isAvailable`) and `schedule` (`dayOfWeek`, `opensAt`, `closesAt`). For updates include the node's `revision` and retain each existing slot's `id`; omit IDs for new slots. Status, timestamps and node identity are server-controlled.
+
+### Node verification
+
+The existing integration runner now covers authentication and node management using a disposable MongoDB database:
+
+```powershell
+dotnet build tests/SmartSolarMicrogrid.AuthChecks -o tmp/node-checks -p:UseAppHost=false
+dotnet tmp/node-checks/SmartSolarMicrogrid.AuthChecks.dll tmp/node-checks/SmartSolarMicrogrid.Api.dll
+npm run build --prefix web
+npm run lint --prefix web
+```
+
+All **123 integration checks** passed (62 authentication checks and 61 node checks), covering input validation, persistence, role restrictions, metadata/schedule/capacity updates, active-reservation blocking, terminal states, slot-history preservation, inactive-node visibility and concurrent node edits. The API/check runner built without warnings or errors. Web build and lint passed. Browser checks passed for hub creation, capacity/schedule editing, deactivation, operator-only slot availability, and hiding hub administration controls from operators. No application database was modified; test records use a uniquely named disposable database.
 
 ## Local development
 
@@ -25,7 +70,7 @@ dotnet run --project backend/SmartSolarMicrogrid.Api --launch-profile http
 
 Verify the real MongoDB connection at `http://localhost:5086/api/health`. A successful response identifies the `smart_solar_microgrid` database and reports `Healthy`.
 
-Development defaults are stored in `appsettings.Development.json`. The backend `.env.example` documents the equivalent environment variable names for deployment and overrides. ASP.NET Core reads process environment variables directly and does not automatically load `.env` files.
+Development defaults are stored in `appsettings.Development.json`. The backend `.env.example` documents the equivalent environment variable names for deployment and overrides. The API loads a local `.env` through DotNetEnv without overriding existing process environment variables.
 
 Start the web client in another terminal:
 
