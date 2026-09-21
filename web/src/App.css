@@ -19,3 +19,8 @@ main { flex: 1; }
 .dialog-panel::backdrop { background: #10281fcc; }
 .dialog-panel { width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; }
 @media (max-width: 575px) { .brand-caption { display: none; } .display-4 { font-size: 2.3rem; } .login-layout { min-height: auto; } }
+
+.node-search { flex: 1 1 240px; width: auto; }
+.nav-pills .nav-link.active { background: #226d50; }
+.nav-pills .nav-link:not(.active) { color: #226d50; background: #e8eee9; }
+details summary { cursor: pointer; }

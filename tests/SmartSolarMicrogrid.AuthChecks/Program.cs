@@ -73,6 +73,117 @@ async Task<string> Login(string email, string password = "Synthetic-test-pass-42
     // Return credentials only to the test harness; never print them.
     return (await Request("/login", HttpStatusCode.OK, "POST", new { email, password }))["token"]!.GetValue<string>();
 }
+async Task CheckNodes(string officer, string op, string prosumer)
+{
+    // Exercise real HTTP authorization, persistence and reservation guards without application data.
+    object ValidNode(string name = "Colombo Solar Hub") => new {
+        name, address = "Synthetic test address, Colombo", latitude = 6.9271, longitude = 79.8612,
+        powerCapacityKw = 25m,
+        batterySlots = new[] { new { name = "Battery A", capacityKwh = 20m, isAvailable = true }, new { name = "Battery B", capacityKwh = 15m, isAvailable = false } },
+        schedule = new[] { new { dayOfWeek = 1, opensAt = "08:00", closesAt = "18:00" } }
+    };
+    JsonObject Payload() => System.Text.Json.JsonSerializer.SerializeToNode(ValidNode())!.AsObject();
+    await Request("/nodes", HttpStatusCode.Unauthorized);
+    await Request("/nodes", HttpStatusCode.Forbidden, "POST", ValidNode(), op);
+    await Request("/nodes", HttpStatusCode.Forbidden, "POST", ValidNode(), prosumer);
+    var invalid = Payload(); invalid["latitude"] = 91;
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid.Remove("longitude");
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid["powerCapacityKw"] = 0;
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid["schedule"]![0]!["closesAt"] = "07:00";
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid["schedule"]!.AsArray().Add(invalid["schedule"]![0]!.DeepClone());
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid["schedule"] = new JsonArray();
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid["batterySlots"] = new JsonArray();
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid["batterySlots"]![0] = null;
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid["batterySlots"]![0]!["name"] = null;
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid["batterySlots"]![1]!["name"] = " battery a ";
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid["batterySlots"]![0]!["capacityKwh"] = -1;
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    invalid = Payload(); invalid["batterySlots"]![0]!["id"] = "invented";
+    await Request("/nodes", HttpStatusCode.BadRequest, "POST", invalid, officer);
+    var node = await Request("/nodes", HttpStatusCode.Created, "POST", ValidNode(), officer);
+    var id = node["id"]!.GetValue<string>();
+    var slotId = node["batterySlots"]![0]!["id"]!.GetValue<string>();
+    var path = "/nodes/" + id;
+    var slotPath = path + "/slots/" + slotId + "/availability";
+    Check(node["isActive"]!.GetValue<bool>() && node["revision"]!.GetValue<long>() == 1, "New node starts active at revision 1");
+    var persisted = await database.GetCollection<BsonDocument>(MicrogridNodeService.CollectionName).Find(new BsonDocument("_id", id)).SingleAsync();
+    Check(persisted["BatterySlots"].AsBsonArray.Count == 2 && persisted["Latitude"].AsDouble == 6.9271, "GPS and physical slots persist in MongoDB");
+    await Request(path, HttpStatusCode.OK, token: op);
+    await Request(path, HttpStatusCode.OK, token: prosumer);
+    await Request("/nodes/missing", HttpStatusCode.NotFound, token: officer);
+    await Request(path, HttpStatusCode.Forbidden, "PUT", node, op);
+    await Request(path + "/status", HttpStatusCode.Forbidden, "PATCH", new { isActive = false, revision = 1 }, op);
+    await Request(slotPath, HttpStatusCode.Forbidden, "PATCH", new { isAvailable = false, revision = 1 }, prosumer);
+    await Request(slotPath, HttpStatusCode.BadRequest, "PATCH", new { revision = 1 }, op);
+    await Request(path + "/status", HttpStatusCode.BadRequest, "PATCH", new { revision = 1 }, officer);
+    await Request(path + "/slots/missing/availability", HttpStatusCode.NotFound, "PATCH", new { isAvailable = true, revision = 1 }, op);
+    node = await Request(slotPath, HttpStatusCode.OK, "PATCH", new { isAvailable = false, revision = 1 }, op);
+    Check(!node["batterySlots"]![0]!["isAvailable"]!.GetValue<bool>(), "Operator availability update is persisted");
+    await Request(path + "/status", HttpStatusCode.Conflict, "PATCH", new { isActive = false, revision = 1 }, officer);
+    var update = node.DeepClone(); update["name"] = "Updated Solar Hub"; update["powerCapacityKw"] = 30;
+    update["schedule"]![0]!["opensAt"] = "09:00";
+    node = await Request(path, HttpStatusCode.OK, "PUT", update, officer);
+    Check(node["schedule"]![0]!["opensAt"]!.GetValue<string>() == "09:00" && node["powerCapacityKw"]!.GetValue<decimal>() == 30, "Capacity and weekly schedule updates persist");
+    update = node.DeepClone(); update["batterySlots"]![0]!["id"] = "foreign-slot";
+    await Request(path, HttpStatusCode.BadRequest, "PUT", update, officer);
+    var reservations = database.GetCollection<BsonDocument>(NodeReservationGuard.CollectionName);
+    foreach (var state in new[] { "PENDING", "APPROVED", "IN_PROGRESS", "UNKNOWN" })
+    {
+        // A reservation blocks deactivation regardless of a stale or absent booking date.
+        await reservations.InsertOneAsync(new BsonDocument { ["_id"] = state, ["NodeId"] = id, ["SlotId"] = slotId, ["Status"] = state });
+        await Request(path + "/status", HttpStatusCode.Conflict, "PATCH", new { isActive = false, revision = node["revision"]!.GetValue<long>() }, officer);
+        var stillActive = await Request(path, HttpStatusCode.OK, token: officer);
+        Check(stillActive["isActive"]!.GetValue<bool>() && stillActive["activeReservationCount"]!.GetValue<long>() == 1, state + " reservation blocks deactivation without modifying the node");
+        if (state == "PENDING")
+        {
+            update = node.DeepClone(); update["powerCapacityKw"] = 40;
+            await Request(path, HttpStatusCode.Conflict, "PUT", update, officer);
+            update = node.DeepClone(); update["schedule"]![0]!["closesAt"] = "19:00";
+            await Request(path, HttpStatusCode.Conflict, "PUT", update, officer);
+            await Request(slotPath, HttpStatusCode.Conflict, "PATCH", new { isAvailable = true, revision = node["revision"]!.GetValue<long>() }, op);
+            update = node.DeepClone(); update["address"] = "Updated metadata while reserved";
+            node = await Request(path, HttpStatusCode.OK, "PUT", update, officer);
+        }
+        await reservations.DeleteOneAsync(new BsonDocument("_id", state));
+    }
+    foreach (var state in new[] { "COMPLETED", "CANCELLED", "REJECTED" })
+        await reservations.InsertOneAsync(new BsonDocument { ["_id"] = state, ["NodeId"] = id, ["SlotId"] = slotId, ["Status"] = state });
+    update = node.DeepClone(); update["batterySlots"]!.AsArray().RemoveAt(0);
+    await Request(path, HttpStatusCode.Conflict, "PUT", update, officer);
+    await reservations.InsertOneAsync(new BsonDocument { ["_id"] = "other-hub", ["NodeId"] = "other-node", ["Status"] = "PENDING" });
+    node = await Request(path + "/status", HttpStatusCode.OK, "PATCH", new { isActive = false, revision = node["revision"]!.GetValue<long>() }, officer);
+    await Request(path, HttpStatusCode.NotFound, token: prosumer);
+    var visible = (await Request("/nodes", HttpStatusCode.OK, token: prosumer)).AsArray();
+    Check(visible.All(item => item!["id"]!.GetValue<string>() != id), "Inactive nodes are hidden from prosumers");
+    await Request(path, HttpStatusCode.OK, token: op);
+    await Request(slotPath, HttpStatusCode.Conflict, "PATCH", new { isAvailable = true, revision = node["revision"]!.GetValue<long>() }, op);
+    node = await Request(path + "/status", HttpStatusCode.OK, "PATCH", new { isActive = true, revision = node["revision"]!.GetValue<long>() }, officer);
+    await Request(path, HttpStatusCode.OK, token: prosumer);
+    async Task<HttpStatusCode> ConcurrentUpdate(bool active)
+    {
+        // Two edits using one revision must never both succeed.
+        using var message = new HttpRequestMessage(HttpMethod.Patch, "/api" + path + "/status");
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", officer);
+        message.Content = JsonContent.Create(new { isActive = active, revision = node["revision"]!.GetValue<long>() });
+        using var response = await client.SendAsync(message);
+        return response.StatusCode;
+    }
+    var outcomes = await Task.WhenAll(ConcurrentUpdate(true), ConcurrentUpdate(false));
+    Check(outcomes.Count(code => code == HttpStatusCode.OK) == 1 && outcomes.Count(code => code == HttpStatusCode.Conflict) == 1, "Concurrent node edits preserve optimistic concurrency");
+    node = await Request(path, HttpStatusCode.OK, token: officer);
+    await Request(path + "/status", HttpStatusCode.OK, "PATCH", new { isActive = true, revision = node["revision"]!.GetValue<long>() }, officer);
+}
+
 try
 {
     // Migration keeps the original documents and normalizes identities/legacy role names.
@@ -172,7 +283,8 @@ try
         signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)), SecurityAlgorithms.HmacSha256));
     await Request("/user", HttpStatusCode.Unauthorized, token: new JwtSecurityTokenHandler().WriteToken(expired));
     await Request("/user", HttpStatusCode.Unauthorized, token: "invalid.jwt.token");
-    Console.WriteLine($"Completed {checks} account integration checks.");
+    await CheckNodes(officer, op, renewed);
+    Console.WriteLine($"Completed {checks} authentication and node integration checks.");
     var stopArgument = args.FirstOrDefault(value => value.StartsWith("--serve-until="));
     if (stopArgument is not null)
     {

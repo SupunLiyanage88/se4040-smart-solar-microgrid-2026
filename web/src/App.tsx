@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, ApiError, roleLabel } from './api'
 import type { Login, User } from './api'
 import 'bootstrap/dist/css/bootstrap.min.css'
 import './App.css'
 import { AccountDialog } from './AccountDialog'
+import { NodeManagement } from './NodeManagement'
 
 type Filter = 'all' | 'pending' | 'requests'
 const tokenKey = 'microgrid.session'
@@ -14,6 +15,7 @@ function App() {
   const [token, setToken] = useState<string | null>(() => sessionStorage.getItem(tokenKey))
   const [user, setUser] = useState<User | null>(null)
   const [users, setUsers] = useState<User[]>([])
+  const [area, setArea] = useState<'nodes' | 'accounts'>('nodes')
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
@@ -23,10 +25,10 @@ function App() {
   const [editor, setEditor] = useState<User | 'new' | null>(null)
   const [confirmation, setConfirmation] = useState<User | null>(null)
 
-  function signOut() {
+  const signOut = useCallback(() => {
     sessionStorage.removeItem(tokenKey)
-    setToken(null); setUser(null); setUsers([]); setEditor(null); setConfirmation(null); setNotice('')
-  }
+    setToken(null); setUser(null); setUsers([]); setEditor(null); setConfirmation(null); setNotice(''); setArea('nodes')
+  }, [])
   function report(reason: unknown) {
     if (reason instanceof ApiError && reason.status === 401) signOut()
     setError(reason instanceof Error ? reason.message : 'Something went wrong. Please retry.')
@@ -108,8 +110,9 @@ function App() {
             <button className="btn btn-primary w-100" disabled={busy}>{busy ? 'Signing in...' : 'Sign in'}</button>
           </form><p className="small text-secondary mt-4 mb-0">Need access? Contact your Backoffice officer.</p></div></section>
         </div> : <>
-          <div className="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4"><div><span className="eyebrow">{roleLabel(user.role)} WORKSPACE</span><h1 className="mt-2">Welcome, {user.userName}</h1><p className="text-secondary">{user.role === 'BACKOFFICE' ? 'Manage accounts and review requests from your solar community.' : 'Your Grid Operator account is active and ready for operational access.'}</p></div><button className="btn btn-outline-secondary" onClick={() => setEditor(user)}>My profile</button></div>
-          {user.role === 'BACKOFFICE' ? <>
+          <div className="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4"><div><span className="eyebrow">{roleLabel(user.role)} WORKSPACE</span><h1 className="mt-2">Welcome, {user.userName}</h1><p className="text-secondary">{user.role === 'BACKOFFICE' ? 'Manage your solar community and microgrid hubs.' : 'Review grid hubs and manage battery-slot availability.'}</p></div><button className="btn btn-outline-secondary" onClick={() => setEditor(user)}>My profile</button></div>
+          <nav className="nav nav-pills gap-2 mb-4" aria-label="Workspace sections"><button className={`nav-link ${area === 'nodes' ? 'active' : ''}`} onClick={() => setArea('nodes')}>Grid nodes</button>{user.role === 'BACKOFFICE' && <button className={`nav-link ${area === 'accounts' ? 'active' : ''}`} onClick={() => setArea('accounts')}>User accounts</button>}</nav>
+          {area === 'nodes' ? <NodeManagement key={user.id} token={token!} role={user.role} onUnauthorized={signOut} /> : user.role === 'BACKOFFICE' ? <>
             <div className="row g-3 mb-4">{([{ label: 'Community accounts', count: users.length, value: 'all' }, { label: 'Pending activation', count: pending.length, value: 'pending' }, { label: 'Deactivation requests', count: requests.length, value: 'requests' }] as const).map(item => <div className="col-md-4" key={item.value}><button className={`stat-card panel w-100 text-start ${filter === item.value ? 'selected' : ''}`} onClick={() => setFilter(item.value)} aria-pressed={filter === item.value}><span>{item.label}</span><strong>{item.count}</strong><span className="small">View accounts</span></button></div>)}</div>
             <section className="panel p-3 p-lg-4"><div className="d-flex flex-wrap justify-content-between gap-3 mb-4"><h2 className="h4 mb-0">{filter === 'pending' ? 'Activation queue' : filter === 'requests' ? 'Deactivation requests' : 'User directory'}</h2><button className="btn btn-primary" onClick={() => setEditor('new')}>+ Create account</button></div><div className="d-flex gap-2 mb-3"><input type="search" className="form-control" aria-label="Search accounts" placeholder="Search by name, email or NIC" value={search} onChange={event => setSearch(event.target.value)} /><button className="btn btn-outline-secondary" disabled={busy} onClick={() => { setBusy(true); void refresh().catch(report).finally(() => setBusy(false)) }}>Refresh</button></div>
             <div className="table-responsive"><table className="table align-middle"><thead><tr><th>Account</th><th>NIC</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{displayed.map(account => <tr key={account.id}><td><strong>{account.userName}</strong><div className="small text-secondary">{account.email}</div></td><td className="text-nowrap">{account.nic}</td><td>{roleLabel(account.role)}</td><td><span className={`badge ${account.activation ? 'text-bg-success' : 'text-bg-secondary'}`}>{account.activationPending ? 'Pending activation' : account.activation ? 'Active' : 'Deactivated'}</span>{account.deactivationRequested && <div className="small text-warning-emphasis mt-1">Deactivation requested</div>}</td><td><div className="d-flex gap-2"><button className="btn btn-sm btn-outline-secondary" onClick={() => setEditor(account)}>Edit</button><button className={`btn btn-sm ${account.activation ? 'btn-outline-danger' : 'btn-outline-success'}`} disabled={busy || account.id === user.id} onClick={() => setConfirmation(account)}>{account.activation ? 'Deactivate' : account.activationPending ? 'Approve' : 'Reactivate'}</button></div></td></tr>)}</tbody></table></div>{displayed.length === 0 && <p className="text-center text-secondary py-4">No accounts match this view.</p>}</section>

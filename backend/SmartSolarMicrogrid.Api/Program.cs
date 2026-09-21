@@ -72,6 +72,8 @@ builder.Services.AddSingleton(serviceProvider =>
 builder.Services.AddScoped<IUserInterface, UserService>();
 builder.Services.AddScoped<IAuthInterface, AuthService>();
 builder.Services.AddScoped<IBackOfficeInterface, BackOfficeService>();
+builder.Services.AddScoped<MicrogridNodeService>();
+builder.Services.AddScoped<NodeReservationGuard>();
 
 builder.Services.AddOptions<JwtOptions>()
     .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
@@ -154,11 +156,17 @@ if (args.Contains("--bootstrap-admin"))
     return;
 }
 await AccountSetup.InitializeAsync(database);
+await MicrogridNodeService.InitializeAsync(database);
 
 app.Use(async (context, next) =>
 {
     // Concurrent duplicate registration/profile updates receive a stable conflict response.
     try { await next(context); }
+    catch (NodeRuleException ex)
+    {
+        context.Response.StatusCode = ex.StatusCode;
+        await context.Response.WriteAsJsonAsync(new { message = ex.Message });
+    }
     catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
     {
         context.Response.StatusCode = StatusCodes.Status409Conflict;
@@ -171,9 +179,9 @@ app.Use(async (context, next) =>
     }
     catch (Exception ex) when (ex is MongoException or TimeoutException)
     {
-        app.Logger.LogError(ex, "Account database unavailable.");
+        app.Logger.LogError(ex, "Application database unavailable.");
         context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-        await context.Response.WriteAsJsonAsync(new { message = "Account service is temporarily unavailable. Please retry." });
+        await context.Response.WriteAsJsonAsync(new { message = "The service is temporarily unavailable. Please retry." });
     }
 });
 
