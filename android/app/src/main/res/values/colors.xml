@@ -1,10 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <!--
+      Reference copy of the palette used in Kotlin (ProsumerAccountActivity.kt,
+      MainActivity.kt use Color.rgb(...) constants directly, not these resources,
+      since the UI is built with plain Views, not XML layouts/themes). Kept here so
+      the values are documented in one obvious place and match the web app's
+      web/src/App.css exactly. Update both places together if the palette changes.
+    -->
+    <color name="solar_green">#226D50</color>          <!-- primary buttons, matches web .btn-primary -->
+    <color name="solar_green_dark">#143D30</color>     <!-- header bar, matches web .site-header -->
+    <color name="solar_green_hover">#174E39</color>    <!-- pressed state, matches web .btn-primary hover -->
+    <color name="solar_muted_green">#39785E</color>    <!-- secondary/eyebrow labels -->
+    <color name="solar_background">#F4F7F4</color>
+    <color name="solar_body_text">#20352C</color>
+    <color name="solar_error">#A02828</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>
