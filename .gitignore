@@ -24,3 +24,6 @@ Thumbs.db
 /tmp/
 
 *.log
+
+/docs
+/tests
