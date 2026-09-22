@@ -256,20 +256,25 @@ class MainActivity : Activity() {
     private fun showLogin(info: String = "") {
         page("Welcome back", "Sign in as a Prosumer or Grid Operator.")
         if (info.isNotBlank()) label(info, 16f, color(R.color.solar_muted_green))
-        val address = field("Service address", server)
+        // Originally an editable "Service address" field here (by SupunLiyanage88, commit f987550)
+        // let AccountFlowTest point sign-in at a disposable/CI test server via an apiUrl
+        // instrumentation arg. Removed from the UI: nothing in the assignment brief calls for a
+        // user-editable server address, and letting an end user redirect the app to an arbitrary
+        // server is a real security concern. Kept here, commented, in case a build-time/CI
+        // override needs reintroducing later without exposing it to real users:
+        // val address = field("Service address", server)
         val email = field("Email address", email = true)
         val password = field("Password", password = true)
         button("Sign in") {
-            val endpoint = address.text.toString().trim().trimEnd('/')
             val credentials = JSONObject().put("email", email.text.toString().trim()).put("password", password.text.toString())
             work({
-                val response = AccountApi(endpoint).request("/login", "POST", credentials)
+                val response = AccountApi(server).request("/login", "POST", credentials)
                 val user = response.getJSONObject("user"); checkMobileRole(user)
-                AccountSession(endpoint, response.getString("token"), response.getString("expiresAtUtc"), user)
+                AccountSession(server, response.getString("token"), response.getString("expiresAtUtc"), user)
                     .also { current -> SessionStore(this).use { it.save(current) } }
-            }) { current -> session = current; server = endpoint; password.setText(""); showHome() }
+            }) { current -> session = current; password.setText(""); showHome() }
         }
-        button("Create a prosumer account") { server = address.text.toString().trim().trimEnd('/'); showRegister() }
+        button("Create a prosumer account") { showRegister() }
     }
     private fun showRegister() {
         page("Join the solar community", "Your NIC identifies your account. Backoffice approval is required before your first sign-in.")
