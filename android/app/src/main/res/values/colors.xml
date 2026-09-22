@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      Reference copy of the palette used in Kotlin (ProsumerAccountActivity.kt,
-      MainActivity.kt use Color.rgb(...) constants directly, not these resources,
-      since the UI is built with plain Views, not XML layouts/themes). Kept here so
+      Reference copy of the palette used in Kotlin (MainActivity.kt reads these via
+      ContextCompat.getColor, not hardcoded Color.rgb constants). Kept here so
       the values are documented in one obvious place and match the web app's
       web/src/App.css exactly. Update both places together if the palette changes.
     -->
