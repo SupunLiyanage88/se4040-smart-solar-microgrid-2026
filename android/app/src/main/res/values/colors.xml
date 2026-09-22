@@ -16,4 +16,19 @@
     <color name="solar_error">#A02828</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Added for UI polish: derived from the palette above, used only from Kotlin
+         (GradientDrawable/StateListDrawable), still no XML layouts. -->
+    <color name="solar_surface">#FFFFFF</color>              <!-- card/input backgrounds -->
+    <color name="solar_border">#D7E2DC</color>                <!-- input/card borders, idle -->
+    <color name="solar_border_focused">#226D50</color>        <!-- input border, focused (= solar_green) -->
+    <color name="solar_disabled">#B7C4BD</color>              <!-- disabled button fill -->
+    <color name="solar_status_pending_bg">#FDF3D9</color>
+    <color name="solar_status_pending_fg">#8A6116</color>
+    <color name="solar_status_approved_bg">#E1F3EA</color>
+    <color name="solar_status_approved_fg">#1C7A4C</color>
+    <color name="solar_status_completed_bg">#E4ECF7</color>
+    <color name="solar_status_completed_fg">#2C4F87</color>
+    <color name="solar_status_negative_bg">#FBE7E7</color>
+    <color name="solar_status_negative_fg">#A02828</color>
 </resources>

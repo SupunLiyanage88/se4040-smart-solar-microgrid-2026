@@ -4,9 +4,13 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
-import android.graphics.Color
+import android.content.res.ColorStateList
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.os.Bundle
 import android.text.InputType
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -16,8 +20,11 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.google.zxing.integration.android.IntentIntegrator
+import com.google.zxing.integration.android.IntentResult
 import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
@@ -43,6 +50,8 @@ class MainActivity : Activity() {
     private var draftEnd: ZonedDateTime? = null
     private var reservationView: String = "current"
     private val dateTimeFormat = DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm")
+    // Set by showCompleteTransaction() so onActivityResult can fill the right field after a scan.
+    private var scannedTokenField: EditText? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,6 +79,12 @@ class MainActivity : Activity() {
         worker.shutdownNow()
         super.onDestroy()
     }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, intent: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, intent)
+        val result: IntentResult = IntentIntegrator.parseActivityResult(requestCode, resultCode, intent) ?: return
+        val text = result.contents ?: return // user cancelled the scan
+        scannedTokenField?.setText(text)
+    }
     private fun checkMobileRole(user: JSONObject) {
         if (user.getString("role") !in listOf("PROSUMER", "GRID_OPERATOR"))
             throw ApiFailure(403, "Backoffice accounts use the web portal.")
@@ -79,66 +94,168 @@ class MainActivity : Activity() {
         checkMobileRole(user)
         return current.copy(user = user).also { updated -> SessionStore(this).use { it.save(updated) } }
     }
+    // ---- Shared styling helpers (plain Views only; palette from colors.xml) ----
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun color(id: Int): Int = ContextCompat.getColor(this, id)
+    /** Rounded fill, used for input boxes and outline buttons. */
+    private fun roundedDrawable(fillColor: Int, strokeColor: Int? = null, strokeWidthDp: Int = 1, radiusDp: Int = 10): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(radiusDp).toFloat()
+            setColor(fillColor)
+            if (strokeColor != null) setStroke(dp(strokeWidthDp), strokeColor)
+        }
+    }
+    private fun inputBackground(): StateListDrawable {
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), roundedDrawable(color(R.color.solar_surface), color(R.color.solar_border_focused), 2))
+            addState(intArrayOf(), roundedDrawable(color(R.color.solar_surface), color(R.color.solar_border)))
+        }
+    }
+    private fun buttonBackground(primary: Boolean): StateListDrawable {
+        val fill = if (primary) color(R.color.solar_green) else color(R.color.solar_surface)
+        val stroke = if (primary) null else color(R.color.solar_border)
+        return StateListDrawable().apply {
+            addState(intArrayOf(-android.R.attr.state_enabled), roundedDrawable(color(R.color.solar_disabled), stroke, radiusDp = 10))
+            addState(intArrayOf(android.R.attr.state_pressed), roundedDrawable(if (primary) color(R.color.solar_green_hover) else color(R.color.solar_background), stroke, radiusDp = 10))
+            addState(intArrayOf(), roundedDrawable(fill, stroke, radiusDp = 10))
+        }
+    }
     private fun page(title: String, description: String) {
         controls.clear()
+        // Only showCompleteTransaction() re-sets this; every other screen must not hold a stale scan target.
+        scannedTokenField = null
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(color(R.color.solar_background))
+        }
+        // Header bar sits above the scroll area so it never scrolls away.
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(color(R.color.solar_green_dark))
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            addView(TextView(this@MainActivity).apply {
+                text = "SOLARGRID"; textSize = 14f; setTextColor(color(R.color.white))
+                typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD); letterSpacing = 0.08f
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = title; textSize = 22f; setTextColor(color(R.color.white))
+                typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(4), 0, 0)
+            })
+            root.addView(this)
+            ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
+                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                view.setPadding(dp(20) + bars.left, dp(20) + bars.top, dp(20) + bars.right, dp(20))
+                insets
+            }
+        }
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            val padding = (24 * resources.displayMetrics.density).toInt()
-            setPadding(padding, padding, padding, padding)
-            setBackgroundColor(Color.rgb(244, 247, 244))
+            setPadding(dp(20), dp(20), dp(20), dp(24))
         }
-        val scroll = ScrollView(this).apply { isFillViewport = true; addView(content) }
-        ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true; addView(content)
+            ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
+                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                view.setPadding(bars.left, 0, bars.right, bars.bottom)
+                insets
+            }
         }
-        setContentView(scroll)
-        ViewCompat.requestApplyInsets(scroll)
-        label("SOLARGRID", 16f, Color.rgb(34, 109, 80))
-        label(title, 28f)
-        label(description, 16f)
-        message = label("", 15f, Color.rgb(160, 40, 40)).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+        ViewCompat.requestApplyInsets(root)
+        label(description, 15f, color(R.color.solar_muted_green))
+        message = label("", 15f, color(R.color.solar_error)).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
     }
-    private fun label(text: String, size: Float = 16f, color: Int = Color.rgb(32, 53, 44)): TextView {
-        return TextView(this).apply { this.text = text; textSize = size; setTextColor(color); setPadding(0, 12, 0, 16); content.addView(this) }
+    private fun label(text: String, size: Float = 16f, color: Int = color(R.color.solar_body_text)): TextView {
+        return TextView(this).apply {
+            this.text = text; textSize = size; setTextColor(color); setPadding(0, dp(6), 0, dp(10))
+            content.addView(this)
+        }
+    }
+    /** Section heading used above a group of related fields or buttons. */
+    private fun sectionTitle(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text; textSize = 18f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(color(R.color.solar_body_text)); setPadding(0, dp(20), 0, dp(8))
+            content.addView(this)
+        }
+    }
+    /** Colored status pill, e.g. for PENDING / APPROVED / COMPLETED / CANCELLED / REJECTED. */
+    private fun statusPill(status: String): TextView {
+        val (bg, fg) = when (status) {
+            "PENDING" -> R.color.solar_status_pending_bg to R.color.solar_status_pending_fg
+            "APPROVED" -> R.color.solar_status_approved_bg to R.color.solar_status_approved_fg
+            "COMPLETED" -> R.color.solar_status_completed_bg to R.color.solar_status_completed_fg
+            else -> R.color.solar_status_negative_bg to R.color.solar_status_negative_fg
+        }
+        return TextView(this).apply {
+            text = status; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(color(fg))
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = roundedDrawable(color(bg), radiusDp = 20)
+            content.addView(this, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(8) })
+        }
+    }
+    private fun fieldLabel(title: String): TextView {
+        return TextView(this).apply {
+            text = title; textSize = 13f; setTextColor(color(R.color.solar_muted_green))
+            typeface = Typeface.DEFAULT_BOLD; setPadding(dp(2), dp(4), 0, dp(6))
+            content.addView(this)
+        }
     }
     private fun field(title: String, value: String = "", password: Boolean = false, email: Boolean = false, numeric: Boolean = false): EditText {
-        val titleView = label(title, 14f)
+        val titleView = fieldLabel(title)
         return EditText(this).apply {
             id = View.generateViewId(); titleView.labelFor = id
             setText(value); hint = title; setSingleLine(true)
+            setHintTextColor(color(R.color.solar_muted_green))
+            setTextColor(color(R.color.solar_body_text))
+            background = inputBackground()
+            setPadding(dp(14), dp(12), dp(14), dp(12))
             inputType = when { password -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
                 email -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
                 numeric -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 else -> InputType.TYPE_CLASS_TEXT }
             // Passwords and tokens must not be included in Android view-state snapshots.
             isSaveEnabled = false
-            content.addView(this, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 20 })
+            content.addView(this, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
         }
     }
     private fun radioChoice(title: String, options: List<String>, selected: String = options.first()): RadioGroup {
-        label(title, 14f)
+        fieldLabel(title)
         return RadioGroup(this).apply {
             orientation = LinearLayout.VERTICAL
             options.forEach { option ->
                 addView(RadioButton(this@MainActivity).apply {
                     text = option; id = View.generateViewId(); isChecked = option == selected
+                    setTextColor(color(R.color.solar_body_text))
+                    buttonTintList = ColorStateList.valueOf(color(R.color.solar_green))
+                    setPadding(dp(8), dp(6), 0, dp(6))
                 })
             }
-            content.addView(this, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 20 })
+            content.addView(this, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
         }
     }
     private fun RadioGroup.selectedText(): String = findViewById<RadioButton>(checkedRadioButtonId).text.toString()
-    private fun button(title: String, action: () -> Unit): Button {
+    private fun button(title: String, primary: Boolean = true, action: () -> Unit): Button {
         return Button(this).apply {
             text = title; isAllCaps = false; isEnabled = !busy
-            setOnClickListener { action() }; content.addView(this); controls.add(this)
+            textSize = 15f
+            typeface = if (primary) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            setTextColor(if (primary) color(R.color.white) else color(R.color.solar_body_text))
+            background = buttonBackground(primary)
+            gravity = Gravity.CENTER
+            stateListAnimator = null
+            val vPad = dp(14)
+            setPadding(dp(16), vPad, dp(16), vPad)
+            setOnClickListener { action() }
+            content.addView(this, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+            controls.add(this)
         }
     }
     private fun showLogin(info: String = "") {
         page("Welcome back", "Sign in as a Prosumer or Grid Operator.")
-        if (info.isNotBlank()) label(info, 16f, Color.rgb(34, 109, 80))
+        if (info.isNotBlank()) label(info, 16f, color(R.color.solar_muted_green))
         val address = field("Service address", server)
         val email = field("Email address", email = true)
         val password = field("Password", password = true)
@@ -169,7 +286,7 @@ class MainActivity : Activity() {
                 password.setText(""); confirm.setText(""); showLogin("Registration received. Ask Backoffice to activate your account, then sign in.")
             }
         }
-        button("Back to sign in") { showLogin() }
+        button("Back to sign in", primary = false) { showLogin() }
     }
     private fun showHome() {
         val current = session ?: return showLogin()
@@ -178,11 +295,11 @@ class MainActivity : Activity() {
         page(if (prosumer) "Prosumer home" else "Grid Operator home", "Welcome, ${user.getString("userName")}")
         label("NIC: ${user.getString("nic")}")
         label(user.getString("email"))
-        label("Account active", 16f, Color.rgb(34, 109, 80))
-        if (user.optBoolean("deactivationRequested")) label("Your deactivation request is awaiting Backoffice review.")
+        if (user.optBoolean("deactivationRequested")) statusPill("PENDING") else statusPill("APPROVED").text = "ACTIVE"
+        if (user.optBoolean("deactivationRequested")) label("Your deactivation request is awaiting Backoffice review.", 14f, color(R.color.solar_muted_green))
         button("Edit my profile") { showProfile() }
-        button("Refresh account") { work({ validated(current) }) { session = it; showHome() } }
-        if (prosumer && !user.optBoolean("deactivationRequested")) button("Request deactivation") {
+        button("Refresh account", primary = false) { work({ validated(current) }) { session = it; showHome() } }
+        if (prosumer && !user.optBoolean("deactivationRequested")) button("Request deactivation", primary = false) {
             AlertDialog.Builder(this).setTitle("Request account deactivation?")
                 .setMessage("Backoffice will review your request. Once deactivated, only Backoffice can reactivate your account.")
                 .setNegativeButton("Cancel", null).setPositiveButton("Request") { _, _ ->
@@ -192,9 +309,9 @@ class MainActivity : Activity() {
                     }) { session = it; showHome() }
                 }.show()
         }
-        label("Reservations", 20f)
+        sectionTitle("Reservations")
         work({ ReservationApi(current.server).summary(current.token) }) { summary ->
-            label("Pending: ${summary.optLong("pendingCount")}    Upcoming approved: ${summary.optLong("approvedFutureCount")}")
+            label("Pending: ${summary.optLong("pendingCount")}    Upcoming approved: ${summary.optLong("approvedFutureCount")}", 14f, color(R.color.solar_muted_green))
         }
         if (prosumer) {
             button("Reserve a slot") { draftNode = null; draftSlot = null; editingReservationId = null; draftStart = null; draftEnd = null; showNodePicker() }
@@ -203,7 +320,7 @@ class MainActivity : Activity() {
             button("Pending approvals") { showPendingApprovals() }
             button("Complete a transaction") { showCompleteTransaction() }
         }
-        button("Sign out") { work({ SessionStore(this).use { it.clear() } }) { session = null; showLogin("You have signed out.") } }
+        button("Sign out", primary = false) { work({ SessionStore(this).use { it.clear() } }) { session = null; showLogin("You have signed out.") } }
     }
     private fun showProfile() {
         val current = session ?: return showLogin()
@@ -218,7 +335,7 @@ class MainActivity : Activity() {
                 current.copy(user = user).also { updated -> SessionStore(this).use { it.save(updated) } }
             }) { session = it; showHome() }
         }
-        button("Cancel") { showHome() }
+        button("Cancel", primary = false) { showHome() }
     }
     // ---- Prosumer reservation flow ----
     private fun showNodePicker() {
@@ -228,7 +345,7 @@ class MainActivity : Activity() {
             if (nodes.length() == 0) label("No active nodes are available right now.")
             for (i in 0 until nodes.length()) {
                 val node = nodes.getJSONObject(i)
-                button("${node.getString("name")} - ${node.getString("address")}") { draftNode = node; showSlotPicker(node) }
+                button("${node.getString("name")} - ${node.getString("address")}", primary = false) { draftNode = node; showSlotPicker(node) }
             }
         }
     }
@@ -240,10 +357,10 @@ class MainActivity : Activity() {
             val slot = slots.getJSONObject(i)
             val available = slot.optBoolean("isAvailable", true)
             val caption = "${slot.getString("name")} - ${slot.get("capacityKwh")} kWh" + if (!available) " (unavailable)" else ""
-            val b = button(caption) { draftSlot = slot; showReservationForm() }
+            val b = button(caption, primary = false) { draftSlot = slot; showReservationForm() }
             if (!available) { b.isEnabled = false; b.setOnClickListener(null) }
         }
-        button("Back") { showNodePicker() }
+        button("Back", primary = false) { showNodePicker() }
     }
     private fun pickDateTime(initial: ZonedDateTime?, onPicked: (ZonedDateTime) -> Unit) {
         val base = initial ?: ZonedDateTime.now(ZoneId.systemDefault()).plusHours(1)
@@ -258,14 +375,19 @@ class MainActivity : Activity() {
         val editing = editingReservationId != null
         page(if (editing) "Modify reservation" else "New reservation",
             "Times are shown in your device's local time zone; the node's own operating hours are checked on the server.")
-        draftNode?.let { label("Node: ${it.optString("name")}") }
-        draftSlot?.let { label("Slot: ${it.optString("name")} (${it.opt("capacityKwh")} kWh capacity)") }
+        if (draftNode != null || draftSlot != null) {
+            sectionTitle("Location")
+            draftNode?.let { label("Node: ${it.optString("name")}") }
+            draftSlot?.let { label("Slot: ${it.optString("name")} (${it.opt("capacityKwh")} kWh capacity)") }
+        }
+        sectionTitle("Details")
         val direction = radioChoice("Direction", listOf("DROP_OFF", "CHARGING"))
         val kwh = field("Requested kWh", numeric = true)
-        button("Start: ${draftStart?.format(dateTimeFormat) ?: "Choose"}") {
+        sectionTitle("Schedule")
+        button("Start: ${draftStart?.format(dateTimeFormat) ?: "Choose"}", primary = false) {
             pickDateTime(draftStart) { picked -> draftStart = picked; showReservationForm() }
         }
-        button("End: ${draftEnd?.format(dateTimeFormat) ?: "Choose"}") {
+        button("End: ${draftEnd?.format(dateTimeFormat) ?: "Choose"}", primary = false) {
             pickDateTime(draftEnd) { picked -> draftEnd = picked; showReservationForm() }
         }
         button(if (editing) "Save changes" else "Reserve") {
@@ -290,32 +412,47 @@ class MainActivity : Activity() {
                 showReservationList(if (id != null) reservationView else "pending")
             }
         }
-        button("Cancel") { if (editing) showReservationList(reservationView) else showHome() }
+        button("Cancel", primary = false) { if (editing) showReservationList(reservationView) else showHome() }
     }
     private fun showReservationList(view: String) {
         val current = session ?: return showLogin()
         reservationView = view
         page("My reservations", "Filter by status.")
         val labelFor = mapOf("current" to "Current", "pending" to "Pending", "history" to "History")
-        labelFor.forEach { (key, title) -> button(title) { showReservationList(key) } }
-        label("Showing: ${labelFor[view] ?: view}", 14f)
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            labelFor.forEach { (key, title) ->
+                val active = key == view
+                addView(Button(this@MainActivity).apply {
+                    text = title; isAllCaps = false; textSize = 13f
+                    typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                    setTextColor(if (active) color(R.color.white) else color(R.color.solar_body_text))
+                    background = roundedDrawable(if (active) color(R.color.solar_green) else color(R.color.solar_surface),
+                        if (active) null else color(R.color.solar_border), radiusDp = 10)
+                    stateListAnimator = null
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    setOnClickListener { showReservationList(key) }
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = if (key != "history") dp(8) else 0 })
+            }
+            content.addView(this, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
+        }
         work({ ReservationApi(current.server).list(view, token = current.token) }) { rows ->
-            if (rows.length() == 0) label("No reservations in this view.")
+            if (rows.length() == 0) label("No reservations in this view.", 14f, color(R.color.solar_muted_green))
             for (i in 0 until rows.length()) {
                 val r = rows.getJSONObject(i)
                 val start = runCatching { Instant.parse(r.getString("startsAtUtc")) }.getOrNull()
                     ?.atZone(ZoneId.systemDefault())?.format(dateTimeFormat) ?: r.optString("startsAtUtc")
-                button("${r.getString("status")} - ${r.getString("direction")} - $start") { showReservationDetail(r.getString("id")) }
+                button("${r.getString("status")} - ${r.getString("direction")} - $start", primary = false) { showReservationDetail(r.getString("id")) }
             }
         }
-        button("Back") { showHome() }
+        button("Back", primary = false) { showHome() }
     }
     private fun showReservationDetail(id: String) {
         val current = session ?: return showLogin()
         page("Reservation", "Details for this booking.")
         work({ ReservationApi(current.server).get(id, current.token) }) { r ->
             val status = r.getString("status")
-            label("Status: $status")
+            statusPill(status)
             label("Node: ${r.optString("nodeId")}    Slot: ${r.optString("slotId")}")
             label("Direction: ${r.getString("direction")}    Requested: ${r.get("requestedKwh")} kWh")
             val start = runCatching { Instant.parse(r.getString("startsAtUtc")).atZone(ZoneId.systemDefault()).format(dateTimeFormat) }.getOrDefault(r.optString("startsAtUtc"))
@@ -324,12 +461,18 @@ class MainActivity : Activity() {
             label("End: $end")
             val qrToken = if (r.isNull("qrToken")) null else r.optString("qrToken")
             if (status == "APPROVED" && !qrToken.isNullOrBlank()) {
-                label("Show this code at the node to complete your transaction.", 15f, Color.rgb(34, 109, 80))
-                ImageView(this).apply {
-                    val size = (260 * resources.displayMetrics.density).toInt()
-                    setImageBitmap(encodeQrBitmap(qrToken))
-                    contentDescription = "Reservation QR code"
-                    content.addView(this, LinearLayout.LayoutParams(size, size))
+                label("Show this code at the node to complete your transaction.", 15f, color(R.color.solar_muted_green))
+                LinearLayout(this).apply {
+                    gravity = Gravity.CENTER
+                    background = roundedDrawable(color(R.color.solar_surface), color(R.color.solar_border), radiusDp = 16)
+                    setPadding(dp(16), dp(16), dp(16), dp(16))
+                    addView(ImageView(this@MainActivity).apply {
+                        val size = dp(220)
+                        setImageBitmap(encodeQrBitmap(qrToken))
+                        contentDescription = "Reservation QR code"
+                        layoutParams = LinearLayout.LayoutParams(size, size)
+                    })
+                    content.addView(this, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(16); gravity = Gravity.CENTER_HORIZONTAL })
                 }
             }
             if (status == "PENDING" || status == "APPROVED") {
@@ -341,7 +484,7 @@ class MainActivity : Activity() {
                     draftEnd = runCatching { Instant.parse(r.getString("endsAtUtc")).atZone(ZoneId.systemDefault()) }.getOrNull()
                     showReservationForm()
                 }
-                button("Cancel reservation") {
+                button("Cancel reservation", primary = false) {
                     AlertDialog.Builder(this@MainActivity).setTitle("Cancel this reservation?")
                         .setMessage("This cannot be undone.")
                         .setNegativeButton("Keep it", null).setPositiveButton("Cancel reservation") { _, _ ->
@@ -351,7 +494,7 @@ class MainActivity : Activity() {
             }
             button("Refresh") { showReservationDetail(id) }
         }
-        button("Back") { showReservationList(reservationView) }
+        button("Back", primary = false) { showReservationList(reservationView) }
     }
     // ---- Grid Operator reservation flow ----
     private fun showPendingApprovals() {
@@ -361,12 +504,12 @@ class MainActivity : Activity() {
             if (rows.length() == 0) label("No pending reservations.")
             for (i in 0 until rows.length()) {
                 val r = rows.getJSONObject(i)
-                button("${r.optString("prosumerNic")} - ${r.getString("direction")} - ${r.get("requestedKwh")} kWh") {
+                button("${r.optString("prosumerNic")} - ${r.getString("direction")} - ${r.get("requestedKwh")} kWh", primary = false) {
                     showApprovalDetail(r.getString("id"))
                 }
             }
         }
-        button("Back") { showHome() }
+        button("Back", primary = false) { showHome() }
     }
     private fun showApprovalDetail(id: String) {
         val current = session ?: return showLogin()
@@ -379,26 +522,35 @@ class MainActivity : Activity() {
             val end = runCatching { Instant.parse(r.getString("endsAtUtc")).atZone(ZoneId.systemDefault()).format(dateTimeFormat) }.getOrDefault(r.optString("endsAtUtc"))
             label("Start: $start")
             label("End: $end")
-            label("Status: ${r.getString("status")}")
+            statusPill(r.getString("status"))
             if (r.getString("status") == "PENDING") {
                 button("Approve") { work({ ReservationApi(current.server).decide(id, "APPROVE", current.token) }) { showPendingApprovals() } }
-                button("Reject") { work({ ReservationApi(current.server).decide(id, "REJECT", current.token) }) { showPendingApprovals() } }
+                button("Reject", primary = false) { work({ ReservationApi(current.server).decide(id, "REJECT", current.token) }) { showPendingApprovals() } }
             }
         }
-        button("Back") { showPendingApprovals() }
+        button("Back", primary = false) { showPendingApprovals() }
     }
     private fun showCompleteTransaction() {
         val current = session ?: return showLogin()
-        page("Complete a transaction", "Enter the prosumer's transaction QR token to finalize the transfer.")
+        page("Complete a transaction", "Scan the prosumer's transaction QR code, or enter the token manually.")
         val token = field("QR token")
+        scannedTokenField = token
+        button("Scan QR code") {
+            IntentIntegrator(this).apply {
+                setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+                setPrompt("Point the camera at the prosumer's transaction QR code")
+                setBeepEnabled(true)
+                setOrientationLocked(true)
+            }.initiateScan()
+        }
         button("Complete") {
             val value = token.text.toString().trim()
-            if (value.isBlank()) { message.text = "Enter a QR token."; return@button }
+            if (value.isBlank()) { message.text = "Scan or enter a QR token."; return@button }
             work({ ReservationApi(current.server).complete(value, current.token) }) { r ->
                 token.setText(""); message.text = "Transaction completed. Status: ${r.optString("status")}"
             }
         }
-        button("Back") { showHome() }
+        button("Back", primary = false) { showHome() }
     }
     private fun <T> work(task: () -> T, success: (T) -> Unit) {
         if (busy) return
