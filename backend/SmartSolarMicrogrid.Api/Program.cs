@@ -74,6 +74,7 @@ builder.Services.AddScoped<IAuthInterface, AuthService>();
 builder.Services.AddScoped<IBackOfficeInterface, BackOfficeService>();
 builder.Services.AddScoped<MicrogridNodeService>();
 builder.Services.AddScoped<NodeReservationGuard>();
+builder.Services.AddScoped<ReservationService>();
 
 builder.Services.AddOptions<JwtOptions>()
     .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
@@ -157,12 +158,18 @@ if (args.Contains("--bootstrap-admin"))
 }
 await AccountSetup.InitializeAsync(database);
 await MicrogridNodeService.InitializeAsync(database);
+await ReservationService.InitializeAsync(database);
 
 app.Use(async (context, next) =>
 {
     // Concurrent duplicate registration/profile updates receive a stable conflict response.
     try { await next(context); }
     catch (NodeRuleException ex)
+    {
+        context.Response.StatusCode = ex.StatusCode;
+        await context.Response.WriteAsJsonAsync(new { message = ex.Message });
+    }
+    catch (ReservationRuleException ex)
     {
         context.Response.StatusCode = ex.StatusCode;
         await context.Response.WriteAsJsonAsync(new { message = ex.Message });
