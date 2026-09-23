@@ -35,6 +35,8 @@ import java.util.concurrent.Executors
 /** Native Android account screens; all operations go through the REST API. */
 class MainActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
+    private val lookupWorker = Executors.newSingleThreadExecutor()
+    private var pageGeneration = 0L
     private lateinit var content: LinearLayout
     private lateinit var message: TextView
     private var session: AccountSession? = null
@@ -49,6 +51,7 @@ class MainActivity : Activity() {
     private var draftStart: ZonedDateTime? = null
     private var draftEnd: ZonedDateTime? = null
     private var reservationView: String = "current"
+    private var reservationSearch: String = ""
     private val dateTimeFormat = DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm")
     // Set by showCompleteTransaction() so onActivityResult can fill the right field after a scan.
     private var scannedTokenField: EditText? = null
@@ -77,6 +80,7 @@ class MainActivity : Activity() {
     }
     override fun onDestroy() {
         worker.shutdownNow()
+        lookupWorker.shutdownNow()
         super.onDestroy()
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, intent: android.content.Intent?) {
@@ -122,6 +126,8 @@ class MainActivity : Activity() {
         }
     }
     private fun page(title: String, description: String) {
+        pageGeneration++
+        busy = false
         controls.clear()
         // Only showCompleteTransaction() re-sets this; every other screen must not hold a stale scan target.
         scannedTokenField = null
@@ -320,9 +326,10 @@ class MainActivity : Activity() {
         }
         if (prosumer) {
             button("Reserve a slot") { draftNode = null; draftSlot = null; editingReservationId = null; draftStart = null; draftEnd = null; showNodePicker() }
-            button("My reservations") { showReservationList("current") }
+            button("My reservations") { reservationSearch = ""; showReservationList("current", "") }
         } else {
             button("Pending approvals") { showPendingApprovals() }
+            button("Bookings") { reservationSearch = ""; showReservationList("current", "") }
             button("Complete a transaction") { showCompleteTransaction() }
         }
         button("Sign out", primary = false) { work({ SessionStore(this).use { it.clear() } }) { session = null; showLogin("You have signed out.") } }
@@ -412,17 +419,20 @@ class MainActivity : Activity() {
             work({
                 if (id != null) ReservationApi(current.server).update(id, body, current.token)
                 else ReservationApi(current.server).create(body, current.token)
-            }) {
+            }) { reservation ->
                 editingReservationId = null; draftStart = null; draftEnd = null
-                showReservationList(if (id != null) reservationView else "pending")
+                showReservationSummary(if (id != null) "updated" else "requested", reservation, if (id != null) reservationView else "pending")
             }
         }
-        button("Cancel", primary = false) { if (editing) showReservationList(reservationView) else showHome() }
+        button("Cancel", primary = false) { if (editing) showReservationList(reservationView, reservationSearch) else showHome() }
     }
-    private fun showReservationList(view: String) {
+    private fun showReservationList(view: String, search: String = reservationSearch) {
         val current = session ?: return showLogin()
         reservationView = view
-        page("My reservations", "Filter by status.")
+        reservationSearch = search
+        val isOperator = current.user.optString("role") == "GRID_OPERATOR"
+        page(if (isOperator) "Bookings" else "My reservations",
+            "Filter by status. Search by booking ID, NIC, node/slot ID, or direction.")
         val labelFor = mapOf("current" to "Current", "pending" to "Pending", "history" to "History")
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -430,34 +440,111 @@ class MainActivity : Activity() {
                 val active = key == view
                 addView(Button(this@MainActivity).apply {
                     text = title; isAllCaps = false; textSize = 13f
+                    isEnabled = !busy
+                    controls.add(this)
                     typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
                     setTextColor(if (active) color(R.color.white) else color(R.color.solar_body_text))
                     background = roundedDrawable(if (active) color(R.color.solar_green) else color(R.color.solar_surface),
                         if (active) null else color(R.color.solar_border), radiusDp = 10)
                     stateListAnimator = null
                     setPadding(dp(12), dp(10), dp(12), dp(10))
-                    setOnClickListener { showReservationList(key) }
+                    setOnClickListener { showReservationList(key, reservationSearch) }
                 }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = if (key != "history") dp(8) else 0 })
             }
             content.addView(this, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
         }
-        work({ ReservationApi(current.server).list(view, token = current.token) }) { rows ->
-            if (rows.length() == 0) label("No reservations in this view.", 14f, color(R.color.solar_muted_green))
+        val searchField = field("Search bookings", search)
+        button("Search") { showReservationList(view, searchField.text.toString().trim()) }
+        button("Clear", primary = false) { showReservationList(view, "") }
+        work({ ReservationApi(current.server).list(view, search, current.token) }) { rows ->
+            if (rows.length() == 0) {
+                // Empty result is a normal outcome; transport failures surface via message.text in work().
+                if (search.isNotBlank()) label("No matching bookings.", 14f, color(R.color.solar_muted_green))
+                else label("No reservations in this view.", 14f, color(R.color.solar_muted_green))
+            }
             for (i in 0 until rows.length()) {
                 val r = rows.getJSONObject(i)
                 val start = runCatching { Instant.parse(r.getString("startsAtUtc")) }.getOrNull()
                     ?.atZone(ZoneId.systemDefault())?.format(dateTimeFormat) ?: r.optString("startsAtUtc")
-                button("${r.getString("status")} - ${r.getString("direction")} - $start", primary = false) { showReservationDetail(r.getString("id")) }
+                val caption = if (isOperator)
+                    "${r.getString("status")} - ${r.optString("prosumerNic")} - ${r.getString("direction")} - ${r.opt("requestedKwh")} kWh - $start"
+                else
+                    "${r.getString("status")} - ${r.getString("direction")} - $start"
+                button(caption, primary = false) { showReservationDetail(r.getString("id")) }
             }
         }
         button("Back", primary = false) { showHome() }
+    }
+    /** Confirmation shown after create/update/cancel succeeds; [action] is requested, updated or cancelled. */
+    private fun showReservationSummary(action: String, reservation: JSONObject, returnView: String) {
+        val current = session ?: return showLogin()
+        val heading = when (action) {
+            "requested" -> "Reservation requested"
+            "updated" -> "Reservation updated"
+            "cancelled" -> "Reservation cancelled"
+            else -> "Reservation update"
+        }
+        page(heading, "Your booking change was saved.")
+        reservationView = returnView
+        val reservationId = reservation.optString("id")
+        val direction = reservation.optString("direction")
+        val directionLabel = when (direction) {
+            "CHARGING" -> "Charging"
+            "DROP_OFF" -> "Drop-off"
+            else -> direction
+        }
+        val status = reservation.optString("status")
+        val statusLabel = when (status) {
+            "PENDING" -> "Pending approval"
+            "APPROVED" -> "Approved"
+            "COMPLETED" -> "Completed"
+            "CANCELLED" -> "Cancelled"
+            "REJECTED" -> "Rejected"
+            else -> status
+        }
+        val start = runCatching { Instant.parse(reservation.getString("startsAtUtc")).atZone(ZoneId.systemDefault()).format(dateTimeFormat) }
+            .getOrDefault(reservation.optString("startsAtUtc"))
+        val end = runCatching { Instant.parse(reservation.getString("endsAtUtc")).atZone(ZoneId.systemDefault()).format(dateTimeFormat) }
+            .getOrDefault(reservation.optString("endsAtUtc"))
+        statusPill(status.ifBlank { "PENDING" })
+        label("Reference: $reservationId")
+        val nodeLabel = label("Node: ${reservation.optString("nodeId")}")
+        val slotLabel = label("Slot: ${reservation.optString("slotId")}")
+        label("Time: $start – $end")
+        label("Energy: ${reservation.opt("requestedKwh")} kWh — $directionLabel")
+        label("Status: $statusLabel")
+        button("View booking") { showReservationDetail(reservationId) }
+        button("Back to bookings", primary = false) { showReservationList(returnView, reservationSearch) }
+        // Names are optional enrichment: keep the saved result and navigation usable while loading.
+        work({ NodeApi(current.server).list(current.token) }, blocking = false) { nodes ->
+            var nodeName = reservation.optString("nodeId")
+            var slotName = reservation.optString("slotId")
+            for (i in 0 until nodes.length()) {
+                val node = nodes.getJSONObject(i)
+                if (node.optString("id") == reservation.optString("nodeId")) {
+                    nodeName = node.optString("name", nodeName)
+                    val slots = node.optJSONArray("batterySlots")
+                    if (slots != null) {
+                        for (j in 0 until slots.length()) {
+                            val slot = slots.getJSONObject(j)
+                            if (slot.optString("id") == reservation.optString("slotId")) slotName = slot.optString("name", slotName)
+                        }
+                    }
+                }
+            }
+            nodeLabel.text = "Node: $nodeName"
+            slotLabel.text = "Slot: $slotName"
+        }
     }
     private fun showReservationDetail(id: String) {
         val current = session ?: return showLogin()
         page("Reservation", "Details for this booking.")
         work({ ReservationApi(current.server).get(id, current.token) }) { r ->
             val status = r.getString("status")
+            val isOperator = current.user.optString("role") == "GRID_OPERATOR"
             statusPill(status)
+            val nic = r.optString("prosumerNic")
+            if (nic.isNotBlank()) label("Prosumer: $nic")
             label("Node: ${r.optString("nodeId")}    Slot: ${r.optString("slotId")}")
             label("Direction: ${r.getString("direction")}    Requested: ${r.get("requestedKwh")} kWh")
             val start = runCatching { Instant.parse(r.getString("startsAtUtc")).atZone(ZoneId.systemDefault()).format(dateTimeFormat) }.getOrDefault(r.optString("startsAtUtc"))
@@ -480,7 +567,7 @@ class MainActivity : Activity() {
                     content.addView(this, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(16); gravity = Gravity.CENTER_HORIZONTAL })
                 }
             }
-            if (status == "PENDING" || status == "APPROVED") {
+            if (!isOperator && (status == "PENDING" || status == "APPROVED")) {
                 button("Modify") {
                     editingReservationId = id
                     draftNode = JSONObject().put("id", r.optString("nodeId")).put("name", r.optString("nodeId"))
@@ -493,13 +580,20 @@ class MainActivity : Activity() {
                     AlertDialog.Builder(this@MainActivity).setTitle("Cancel this reservation?")
                         .setMessage("This cannot be undone.")
                         .setNegativeButton("Keep it", null).setPositiveButton("Cancel reservation") { _, _ ->
-                            work({ ReservationApi(current.server).cancel(id, current.token) }) { showReservationList(reservationView) }
+                            work({ ReservationApi(current.server).cancel(id, current.token) }) { cancelled ->
+                                showReservationSummary("cancelled", cancelled, "history")
+                            }
                         }.show()
                 }
+            } else if (isOperator && status == "PENDING") {
+                button("Approve") { work({ ReservationApi(current.server).decide(id, "APPROVE", current.token) }) { showReservationDetail(id) } }
+                button("Reject", primary = false) { work({ ReservationApi(current.server).decide(id, "REJECT", current.token) }) { showReservationDetail(id) } }
+            } else if (isOperator) {
+                label("This booking is read-only.", 14f, color(R.color.solar_muted_green))
             }
             button("Refresh") { showReservationDetail(id) }
         }
-        button("Back", primary = false) { showReservationList(reservationView) }
+        button("Back", primary = false) { showReservationList(reservationView, reservationSearch) }
     }
     // ---- Grid Operator reservation flow ----
     private fun showPendingApprovals() {
@@ -557,18 +651,28 @@ class MainActivity : Activity() {
         }
         button("Back", primary = false) { showHome() }
     }
-    private fun <T> work(task: () -> T, success: (T) -> Unit) {
-        if (busy) return
-        busy = true; message.text = "Please wait..."; controls.forEach { it.isEnabled = false }
-        worker.execute {
+    private fun <T> work(task: () -> T, blocking: Boolean = true, success: (T) -> Unit) {
+        if (blocking && busy) return
+        val generation = pageGeneration
+        if (blocking) {
+            busy = true; message.text = "Please wait..."; controls.forEach { it.isEnabled = false }
+        }
+        (if (blocking) worker else lookupWorker).execute {
             val result = runCatching(task)
-            val failure = result.exceptionOrNull()
-            if (failure is ApiFailure && failure.status == 401) runCatching { SessionStore(this).use { it.clear() } }
             runOnUiThread {
-                if (isDestroyed || isFinishing) return@runOnUiThread
-                busy = false; controls.forEach { it.isEnabled = true }; message.text = ""
+                // A response belongs only to the page that requested it, including error responses.
+                if (isDestroyed || isFinishing || generation != pageGeneration) return@runOnUiThread
+                if (blocking) {
+                    busy = false; controls.forEach { it.isEnabled = true }; message.text = ""
+                }
                 result.fold(success) { error ->
-                    if (error is ApiFailure && error.status == 401) { session = null; showLogin() }
+                    if (error is ApiFailure && error.status == 401) {
+                        runCatching { SessionStore(this).use { it.clear() } }
+                        session = null; showLogin()
+                    } else if (!blocking) {
+                        message.text = "Booking saved. Node names could not be loaded; IDs are shown instead."
+                        return@fold
+                    }
                     message.text = when (error) {
                         is ApiFailure, is IllegalArgumentException -> error.message
                         else -> "Unable to complete the request. Check your connection and service address, then retry."
