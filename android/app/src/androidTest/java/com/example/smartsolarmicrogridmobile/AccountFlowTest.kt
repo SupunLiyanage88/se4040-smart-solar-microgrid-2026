@@ -33,10 +33,16 @@ class AccountFlowTest {
     @Test fun loginEditRestartAndLogout() {
         val server = InstrumentationRegistry.getArguments().getString("apiUrl")
         assumeTrue("Supply apiUrl for the disposable test API", !server.isNullOrBlank())
+        // The login screen's "Service address" field was removed from the UI (it was a dev
+        // convenience, not an assignment requirement, and shouldn't be user-editable). The UI
+        // login step below now always hits BuildConfig.API_BASE_URL, so this test only exercises
+        // that path meaningfully when apiUrl equals the build's own server. The apiUrl override
+        // below is still honored by operatorSessionRestoresToOperatorHome(), which never depended
+        // on the UI field. See MainActivity.showLogin() for the original field (commented, not
+        // deleted, in case a future test harness needs to reintroduce a build-time/CI override).
         SessionStore(context).use { it.clear() }
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitText("Welcome back")
-            onView(withHint("Service address")).perform(replaceText(server!!), closeSoftKeyboard())
             onView(withHint("Email address")).perform(replaceText("edited@example.test"), closeSoftKeyboard())
             onView(withHint("Password")).perform(replaceText("Synthetic-test-pass-42"), closeSoftKeyboard())
             onView(withText("Sign in")).perform(scrollTo(), click())
