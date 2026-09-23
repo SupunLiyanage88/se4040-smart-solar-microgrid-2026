@@ -17,7 +17,7 @@ public sealed class EnergyReservation
     public decimal RequestedKwh { get; set; }
     public DateTime StartsAtUtc { get; set; }
     public DateTime EndsAtUtc { get; set; }
-    public string? QrToken { get; set; }
+    [BsonIgnoreIfNull] public string? QrToken { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

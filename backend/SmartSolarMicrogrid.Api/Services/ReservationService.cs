@@ -1,6 +1,7 @@
 // Smart Solar Microgrid Trading System
 // Reservation rules: 7-day horizon, 12-hour notice, slot capacity and QR completion.
 using System.Security.Cryptography;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using SmartSolarMicrogrid.Api.DTO.ReservationDTO;
 using SmartSolarMicrogrid.Api.Interfaces;
@@ -176,7 +177,7 @@ public sealed class ReservationService
             r => r.QrToken == qrToken && r.Status == ReservationStatus.APPROVED,
             Builders<EnergyReservation>.Update
                 .Set(r => r.Status, ReservationStatus.COMPLETED)
-                .Set(r => r.QrToken, null)
+                .Unset(r => r.QrToken)
                 .Set(r => r.UpdatedAtUtc, DateTime.UtcNow),
             new FindOneAndUpdateOptions<EnergyReservation> { ReturnDocument = ReturnDocument.After },
             ct);
@@ -186,8 +187,11 @@ public sealed class ReservationService
     }
     public static async Task InitializeAsync(IMongoDatabase database)
     {
-        // Owner lookups and a single active QR token per approved reservation.
+        // An empty token must not occupy the unique index, so each pending booking can be saved.
         var reservations = database.GetCollection<EnergyReservation>(NodeReservationGuard.CollectionName);
+        await reservations.UpdateManyAsync(
+            Builders<EnergyReservation>.Filter.Eq("QrToken", BsonNull.Value),
+            Builders<EnergyReservation>.Update.Unset(r => r.QrToken));
         await reservations.Indexes.CreateManyAsync([
             new CreateIndexModel<EnergyReservation>(Builders<EnergyReservation>.IndexKeys.Ascending(r => r.ProsumerNic).Ascending(r => r.Status)),
             new CreateIndexModel<EnergyReservation>(Builders<EnergyReservation>.IndexKeys.Ascending(r => r.QrToken), new CreateIndexOptions { Unique = true, Sparse = true })]);
