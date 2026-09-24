@@ -2,9 +2,9 @@
 
 SE4040 - Enterprise Application Development | Year 4, Semester 2 | Assignment 1, 2026
 
-**Status: authentication, user management and microgrid node management implemented; reservation workflows, QR transfers and maps remain unfinished.**
+**Status (24 September 2026): core account, node, web/mobile reservation, QR scanning/completion and nearby-map features are implemented. Integration fixes, device/IIS verification and submission deliverables remain outstanding.**
 
-See [Authentication and user management](docs/auth-user-management.md) for the account rules, existing-user migration, first-officer bootstrap, API contracts and verification commands. This functional implementation is AI-assisted; the guide records the assignment's independent-implementation constraint. The planning checklist below remains historical and is not completion evidence.
+This README records current functionality, local setup and the original assignment plan. Implementation status is separate from verified acceptance. AI assistance and the assignment's independent-work requirement are recorded in [section 9](#9-ai-assistance-and-team-review).
 
 - Repository: https://github.com/SupunLiyanage88/se4040-smart-solar-microgrid-2026
 - Team: four members; names, IT numbers and GitHub handles to be completed by the team.
@@ -12,11 +12,25 @@ See [Authentication and user management](docs/auth-user-management.md) for the a
 - Demo video: **TODO - add a YouTube or OneDrive link, maximum 5 minutes.**
 - Source: supplied **EAD_SE4040_Assignment_2026.pdf**, pages 1-9. Page references below refer to that brief. The original PDF is not included here.
 
-This README is an initial planning proposal for team review. Assignment requirements are distinguished from proposed design choices and unresolved questions. All implementation and delivery checkboxes remain open.
+The planning tables and acceptance checklists below are retained for team review. Unchecked items require verification or delivery evidence; they do not necessarily mean the corresponding code is absent.
+
+## Current functionality and remaining work
+
+| Area | Implemented | Remaining |
+| --- | --- | --- |
+| Accounts | JWT login, role restrictions, Backoffice staff/prosumer management, activation, profile editing and deactivation requests | Device lifecycle verification and an agreed policy for deactivating accounts with active bookings |
+| Nodes | GPS, capacity, battery slots, schedules, status changes and operator availability | Concurrent booking/node-change protection and confirmed deletion/retention requirements |
+| Reservations | API and web/native create, update, cancel, approval, lists, search and dashboard counts; Android action summaries and operator history | Atomic related writes, conditional state transitions, aggregate hub capacity and boundary/concurrency tests |
+| QR transfers | Approved-booking QR display, Android scanning and server completion | Server-verified booking details before confirmation, plus replay/race and device tests |
+| Nearby nodes | Google Maps markers/details, server-side radius filtering, location permission/manual selection and booking navigation | Device verification of map configuration, GPS, permissions, failures and retries |
+| Local persistence | Android SQLite profile/session storage with encrypted tokens | Reference-data persistence, migration and recovery verification |
+| Delivery | Project source and development setup | IIS end-to-end evidence, final report/diagrams/screenshots, contribution records, demo video and submission ZIP |
+
+Recorded verification: 123 authentication/node HTTP and MongoDB checks passed on 23 September. Android app/test APK builds and scaffold unit tests passed after the Maps fixes on 24 September. These results do not establish reservation concurrency, device Maps/QR behavior or IIS deployment acceptance.
 
 ## Microgrid node management
 
-Backoffice can create/edit grid hubs, set GPS coordinates and an address, define power capacity and battery slots, manage weekly operating hours, and deactivate/reactivate hubs. Grid Operators can view nodes and change physical-slot availability. The web portal now has **Grid nodes** and **User accounts** sections; Grid Operators see only node operations. Authenticated prosumers can read active hubs through the API for future mobile integration.
+Backoffice can create/edit grid hubs, set GPS coordinates and an address, define power capacity and battery slots, manage weekly operating hours, and deactivate/reactivate hubs. Grid Operators can view nodes and change physical-slot availability. The web portal includes **Grid nodes**, **User accounts** and **Reservations**, with account administration restricted to Backoffice. Authenticated prosumers read active hubs through the API for mobile booking and Maps.
 
 ### Node rules and data
 
@@ -26,16 +40,17 @@ Backoffice can create/edit grid hubs, set GPS coordinates and an address, define
 - Schedules are weekly, in **Asia/Colombo** time: 0=Sunday through 6=Saturday, one `HH:mm` opening/closing interval per selected day. Omitted days are closed; overnight intervals are not supported.
 - Deactivation checks the real `energy_reservations` collection. Reservations reference the hub with BSON `NodeId` and the physical slot with `SlotId`; `Status` uses canonical uppercase strings. Only `COMPLETED`, `CANCELLED` and `REJECTED` are terminal. All other/missing states block deactivation, including `PENDING`, `APPROVED` and `IN_PROGRESS`, regardless of dates.
 - Active reservations also block changes to capacity, physical slots and schedules. Name/address/GPS edits remain allowed. A slot referenced by booking history cannot be removed; it can be marked unavailable once active reservations finish. Hubs are deactivated rather than deleted, preserving history.
-- An unavailable physical slot cannot be offered by the future booking service. The availability flag is an operational setting, not a calculation of free capacity at a particular time.
+- The booking service rejects unavailable physical slots. The availability flag is an operational setting, not a calculation of free capacity at a particular time.
 - Each mutation requires the current `revision`; stale or simultaneous edits return 409 rather than overwriting newer changes. Only Backoffice can administer hubs; operators have a separate, narrow availability endpoint.
 
-**Reservation integration boundary:** This branch implements the deactivation guard and tests it with seeded reservation records; it does not implement booking creation or its UI. The future reservation writer must use the documented collection/field/status contract, enforce active-node/schedule/slot checks, and coordinate reservation writes with node lifecycle changes (for example through transactions with a shared node revision on a MongoDB replica set). The current cross-collection reservation read and node update are not a transaction; optimistic revisions currently protect concurrent node edits, not concurrent future booking inserts. Physical slots are distinct from future time-based `EnergyBookingSlots` records.
+**Reservation integration:** Booking creation and client workflows are implemented, including time-window records separate from physical battery slots. Reservation writes and node lifecycle changes still need atomic coordination. Node revisions protect concurrent node edits; the separate reservation read and node write do not prevent a concurrent booking from racing with deactivation. Existing node tests use seeded reservations and do not establish end-to-end booking correctness.
 
 ### Node endpoints
 
 | Method/path | Permission | Operation |
 | --- | --- | --- |
 | GET `/api/nodes` | Active account | List hubs; prosumers see active hubs only |
+| GET `/api/nodes/nearby` | Active account | Active hubs within the supplied coordinates/radius, nearest first |
 | GET `/api/nodes/{id}` | Active account | Hub, GPS, physical slots and schedule |
 | POST `/api/nodes` | Backoffice | Create a hub |
 | PUT `/api/nodes/{id}` | Backoffice | Update configuration using current revision |
@@ -55,7 +70,7 @@ npm run build --prefix web
 npm run lint --prefix web
 ```
 
-All **123 integration checks** passed (62 authentication checks and 61 node checks), covering input validation, persistence, role restrictions, metadata/schedule/capacity updates, active-reservation blocking, terminal states, slot-history preservation, inactive-node visibility and concurrent node edits. The API/check runner built without warnings or errors. Web build and lint passed. Browser checks passed for hub creation, capacity/schedule editing, deactivation, operator-only slot availability, and hiding hub administration controls from operators. No application database was modified; test records use a uniquely named disposable database.
+On **23 September 2026**, all **123 integration checks** passed (62 authentication checks and 61 node checks), covering input validation, persistence, role restrictions, metadata/schedule/capacity updates, active-reservation blocking, terminal states, slot-history preservation, inactive-node visibility and concurrent node edits. The API/check runner build and web build/lint passed. Earlier browser checks covered hub creation/editing, deactivation and operator restrictions; these are historical results, not a current full-system browser pass. The integration runner uses a uniquely named disposable database rather than application records.
 
 ## Local development
 
@@ -266,13 +281,13 @@ Requirements from pp. 4-6 and documentation rubric on p. 8:
 
 The brief states a total of 100 marks: 35 group and 65 individual, with the assignment contributing 20% to the module. Do not treat the suggested work split as an entitlement to marks; individual assessment depends on demonstrated understanding and contribution.
 
-## 9. Planning provenance and team review
+## 9. AI assistance and team review
 
-This initial requirements summary and work plan were prepared with OpenAI Codex from the supplied assignment PDF. No application implementation, database scripts or final submission report is included in this planning change.
+OpenAI Codex assisted with the initial requirements summary and work plan. AI assistance was also used during implementation, including account/authentication work and subsequent Android summary/loading and Maps fixes. This repository should not be described as wholly independently implemented.
 
-The assignment's AI guidance on p. 6 permits AI during initial planning and requires independent implementation. Team members must critically evaluate and refine this plan, record their own design decisions and disclose actual planning-stage AI use in their individual report sections. This paragraph is a provenance record, not a substitute for each member's reflection.
+The assignment brief (p. 6) permits AI for initial planning and requires independent implementation. The assistance recorded above extends beyond planning; functional completion or passing tests do not resolve that requirement. The team should clarify acceptable remediation with the lecturer and record actual contributions and assistance accurately.
 
 - [ ] All four members reviewed requirements against the original brief.
 - [ ] Team identities and ownership agreed; unresolved decisions recorded.
 - [ ] Each member recorded which planning suggestions were accepted, revised or rejected and why.
-- [ ] Team independently develops and verifies the final solution.
+- [ ] Team clarifies the independent-work requirement and records any agreed remediation.
