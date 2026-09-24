@@ -3,6 +3,19 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+import java.util.Properties
+
+// Reads android/local.properties (gitignored) or the environment; never commit a key.
+fun mapsApiKey(): String {
+    val local = rootProject.file("local.properties")
+    if (local.exists()) {
+        val props = Properties()
+        local.inputStream().use { props.load(it) }
+        props.getProperty("MAPS_API_KEY")?.takeIf { it.isNotBlank() }?.let { return it.trim() }
+    }
+    return System.getenv("MAPS_API_KEY").orEmpty()
+}
+
 android {
     namespace = "com.example.smartsolarmicrogridmobile"
     compileSdk {
@@ -16,6 +29,10 @@ android {
         versionCode = 1
         versionName = "1.0"
         buildConfigField("String", "API_BASE_URL", "\"https://localhost:7086\"")
+        // Google Maps key stays outside Git: set MAPS_API_KEY in android/local.properties
+        // (gitignored) or as a MAPS_API_KEY environment variable. Empty builds compile;
+        // the map tiles simply render blank until a key is supplied.
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -52,6 +69,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.zxing.core)
     implementation(libs.zxing.embedded)
+    implementation(libs.androidx.fragment.ktx)
+    implementation(libs.play.services.maps)
+    implementation(libs.play.services.location)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

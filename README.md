@@ -82,6 +82,15 @@ npm run dev
 
 The default local CORS policy permits the Vite client at `http://localhost:5173`. Never commit real credentials, tokens, or production connection strings.
 
+### Android nearby-node map (Google Maps)
+
+1. Create a Google Cloud project, enable billing, and enable **Maps SDK for Android** (follow the official setup guide).
+2. Create an API key restricted to Android apps (your debug/release SHA-1 fingerprints + package `com.example.smartsolarmicrogridmobile` / `.debug`) and to the Maps SDK for Android API.
+3. Put the key outside Git in `android/local.properties` (already gitignored) or a `MAPS_API_KEY` environment variable:
+   `MAPS_API_KEY=YOUR_KEY_HERE`
+   Gradle injects it into the manifest at build time; builds without a key compile but render blank tiles.
+4. Restart the backend so the new `GET /api/nodes/nearby?latitude=..&longitude=..&radiusKm=..` endpoint is live (it validates coordinates/radius and returns active nodes sorted nearest first). Older servers still work: the app falls back to client-side distance filtering.
+
 ## 1. Outcome and required architecture
 
 Deliver an end-to-end system in which solar prosumers reserve energy drop-off/charging slots, Backoffice staff administer users and grid nodes, and Grid Operators manage operations and verify completed transfers.
