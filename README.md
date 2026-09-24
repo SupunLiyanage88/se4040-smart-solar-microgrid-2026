@@ -82,6 +82,18 @@ npm run dev
 
 The default local CORS policy permits the Vite client at `http://localhost:5173`. Never commit real credentials, tokens, or production connection strings.
 
+### Android nearby-node map (Google Maps)
+
+1. Create a Google Cloud project, enable billing, and enable **Maps SDK for Android** (follow the official setup guide).
+2. Create an API key restricted to Android apps (your debug/release SHA-1 fingerprints + package `com.example.smartsolarmicrogridmobile` / `.debug`) and to the Maps SDK for Android API.
+3. Put the key outside Git in `android/local.properties` (already gitignored) or a `MAPS_API_KEY` environment variable:
+   `MAPS_API_KEY=YOUR_KEY_HERE`
+   Gradle injects it into the manifest at build time; builds without a key compile but render blank tiles.
+4. Restart the backend so `GET /api/nodes/nearby?latitude=..&longitude=..&radiusKm=..` is live. It validates coordinates/radius and returns active nodes sorted nearest first. This endpoint is required: API failures show an error and a Retry search button; Android does not filter nodes locally.
+5. Locate me accepts a location up to 30 seconds old or requests a fresh fix for up to 20 seconds. Approximate location is supported. If no fix is available or permission is denied, long-press the map to select an area. Manual selection cancels any pending location request.
+
+Map verification on a device: change radius/location during a delayed API response and confirm only the latest results appear; fail the latest request and confirm old markers/details stay cleared; test API errors and retry, expired sessions, fresh/stale/missing location, denied permission, and leaving the map during a location request. Builds and scaffold unit tests do not establish these device outcomes.
+
 ## 1. Outcome and required architecture
 
 Deliver an end-to-end system in which solar prosumers reserve energy drop-off/charging slots, Backoffice staff administer users and grid nodes, and Grid Operators manage operations and verify completed transfers.

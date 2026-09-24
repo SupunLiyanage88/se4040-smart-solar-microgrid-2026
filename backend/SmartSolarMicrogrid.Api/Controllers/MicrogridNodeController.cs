@@ -23,6 +23,12 @@ public sealed class MicrogridNodeController : ControllerBase
         // Active prosumers may read locations for future mobile map integration.
         return _nodes.ListAsync(User.IsInRole("BACKOFFICE") || User.IsInRole("GRID_OPERATOR"), ct);
     }
+    [HttpGet("nearby")]
+    public Task<List<MicrogridNode>> Nearby([FromQuery] double? latitude, [FromQuery] double? longitude, [FromQuery] double? radiusKm, CancellationToken ct)
+    {
+        // Central radius filtering for the mobile nearby-node map; sorted nearest first.
+        return _nodes.ListNearbyAsync(latitude, longitude, radiusKm, ct);
+    }
     [HttpGet("{id}")]
     public Task<MicrogridNode> Get(string id, CancellationToken ct)
     {
