@@ -12,6 +12,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.CurrentLocationRequest
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
@@ -50,6 +53,8 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
     private var centerLon = DEFAULT_LON
     private var hasFix = false
     private var radiusKm = 10.0
+    private var searchGeneration = 0L
+    private var locationRequest: CancellationTokenSource? = null
 
     private lateinit var status: TextView
     private lateinit var detailCard: View
@@ -66,7 +71,7 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
     ) { grants ->
         val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (granted) locate(disableWhenDenied = false)
+        if (granted) locate()
         else {
             status.text = "Location unavailable — browse the map or long-press to search around a point."
             Toast.makeText(this, "Permission denied. Browsing manually instead.", Toast.LENGTH_LONG).show()
@@ -94,6 +99,9 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
         findViewById<Button>(R.id.radius10).setOnClickListener { setRadius(10.0) }
         findViewById<Button>(R.id.radius25).setOnClickListener { setRadius(25.0) }
         findViewById<Button>(R.id.locateButton).setOnClickListener { requestLocation() }
+        findViewById<Button>(R.id.retryButton).setOnClickListener {
+            if (hasFix) reload() else loadAllNodes()
+        }
         findViewById<Button>(R.id.closeButton).setOnClickListener { detailCard.visibility = View.GONE }
         findViewById<Button>(R.id.reserveButton).setOnClickListener {
             val id = selectedNodeId ?: return@setOnClickListener
@@ -105,6 +113,8 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
     }
 
     override fun onDestroy() {
+        cancelLocation()
+        searchGeneration++
         worker.shutdownNow()
         super.onDestroy()
     }
@@ -119,6 +129,7 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
         }
         // Manual area selection when location is denied or imprecise.
         googleMap.setOnMapLongClickListener { point ->
+            cancelLocation()
             centerLat = point.latitude
             centerLon = point.longitude
             hasFix = true
@@ -128,20 +139,25 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
         try {
             if (hasLocationPermission()) googleMap.isMyLocationEnabled = true
         } catch (_: SecurityException) { /* permission revoked mid-flow; manual browsing still works */ }
-        loadAllNodes()
+        if (hasFix) {
+            googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(centerLat, centerLon), 12f))
+            reload()
+        } else loadAllNodes()
     }
 
     /** Step 3: plot actual registered nodes before any location filtering. */
     private fun loadAllNodes() {
         val current = session ?: return
+        if (map == null || isDestroyed || isFinishing) return
+        val generation = beginSearch()
         status.text = "Loading grid nodes…"
         worker.execute {
             val result = runCatching { NodeApi(current.server).list(current.token) }
             runOnUiThread {
-                if (isDestroyed || isFinishing) return@runOnUiThread
+                if (isDestroyed || isFinishing || generation != searchGeneration) return@runOnUiThread
                 result.fold({ rows ->
                     cache(rows)
-                    plot(rows, announceTotal = true)
+                    plot(rows)
                     if (!hasFix) {
                         val first = firstPosition(rows)
                         val target = first ?: LatLng(DEFAULT_LAT, DEFAULT_LON)
@@ -149,12 +165,8 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
                         status.text =
                             "Showing ${rows.length()} nodes. Allow location or long-press the map for nearby results."
                     }
-                    // When a fix already exists, plot() triggers reload() to narrow to the radius.
                 }) { error ->
-                    status.text = if (error is ApiFailure && error.status == 401) {
-                        SessionStore(this).use { it.clear() }
-                        "Session expired. Sign in again from the main screen."
-                    } else "Could not load nodes. Check your connection and retry."
+                    showSearchError(error)
                 }
             }
         }
@@ -169,21 +181,32 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
     }
 
     private fun requestLocation() {
-        if (hasLocationPermission()) locate(disableWhenDenied = false)
+        if (hasLocationPermission()) locate()
         else permissionRequest.launch(
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         )
     }
 
-    /** Coarse (approximate) fixes are accepted as-is; radius filtering absorbs the imprecision. */
-    private fun locate(disableWhenDenied: Boolean) {
+    /** Accept a recent fix, otherwise request one with a bounded wait; approximate permission works too. */
+    private fun locate() {
         if (!hasLocationPermission()) {
-            if (disableWhenDenied) status.text = "Location unavailable — browse the map or long-press to search around a point."
+            status.text = "Location unavailable — browse the map or long-press to search around a point."
             return
         }
+        cancelLocation()
+        val cancellation = CancellationTokenSource()
+        locationRequest = cancellation
+        status.text = "Finding your location… You can also long-press the map to choose an area."
         try {
-            LocationServices.getFusedLocationProviderClient(this).lastLocation
+            val request = CurrentLocationRequest.Builder()
+                .setMaxUpdateAgeMillis(30_000L)
+                .setDurationMillis(20_000L)
+                .setPriority(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+                .build()
+            LocationServices.getFusedLocationProviderClient(this).getCurrentLocation(request, cancellation.token)
                 .addOnSuccessListener { location ->
+                    if (isDestroyed || isFinishing || locationRequest !== cancellation) return@addOnSuccessListener
+                    locationRequest = null
                     if (location == null) {
                         status.text = "No location fix yet — browse the map or long-press to search around a point."
                         return@addOnSuccessListener
@@ -198,11 +221,20 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
                     reload()
                 }
                 .addOnFailureListener {
+                    if (isDestroyed || isFinishing || locationRequest !== cancellation) return@addOnFailureListener
+                    locationRequest = null
                     status.text = "Could not read your location — browse the map or long-press to search around a point."
                 }
         } catch (_: SecurityException) {
+            cancelLocation()
             status.text = "Location unavailable — browse the map or long-press to search around a point."
         }
+    }
+
+    private fun cancelLocation() {
+        val previous = locationRequest
+        locationRequest = null
+        previous?.cancel()
     }
 
     // ---- Nearby filtering ----
@@ -214,46 +246,56 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
 
     private fun reload() {
         val current = session ?: return
+        if (map == null || isDestroyed || isFinishing) return
         if (!hasFix) {
             // No fix yet: keep the full plot from loadAllNodes() instead of filtering around a default.
             return
         }
-        status.text = "Searching within ${radiusKm.toInt()} km…"
+        val latitude = centerLat
+        val longitude = centerLon
+        val radius = radiusKm
+        val generation = beginSearch()
+        status.text = "Searching within ${radius.toInt()} km…"
         worker.execute {
-            // Central filtering first; older servers without /nearby fall back to client-side haversine.
-            val result = runCatching { NodeApi(current.server).nearby(centerLat, centerLon, radiusKm, current.token) }
-                .recoverCatching { NodeApi(current.server).list(current.token).let { filterNearby(it) } }
+            // The API is the sole authority for nearby filtering, including validation failures.
+            val result = runCatching { NodeApi(current.server).nearby(latitude, longitude, radius, current.token) }
             runOnUiThread {
-                if (isDestroyed || isFinishing) return@runOnUiThread
+                if (isDestroyed || isFinishing || generation != searchGeneration) return@runOnUiThread
                 result.fold({ rows ->
                     cache(rows)
-                    plot(rows, announceTotal = false)
+                    plot(rows)
                     status.text = if (rows.length() == 0)
-                        "No nodes within ${radiusKm.toInt()} km — try a larger radius or another area."
-                    else "${rows.length()} node(s) within ${radiusKm.toInt()} km. Tap a marker for details."
+                        "No nodes within ${radius.toInt()} km — try a larger radius or another area."
+                    else "${rows.length()} node(s) within ${radius.toInt()} km. Tap a marker for details."
                 }) { error ->
-                    status.text = if (error is ApiFailure && error.status == 401) {
-                        SessionStore(this).use { it.clear() }
-                        "Session expired. Sign in again from the main screen."
-                    } else "Search failed. Check your connection and retry."
+                    showSearchError(error)
                 }
             }
         }
     }
 
-    private fun filterNearby(rows: JSONArray): JSONArray {
-        val out = JSONArray()
-        data class Scored(val node: JSONObject, val distance: Double)
-        val scored = mutableListOf<Scored>()
-        for (i in 0 until rows.length()) {
-            val node = rows.getJSONObject(i)
-            if (!node.optBoolean("isActive", true)) continue
-            val distance = haversineKm(centerLat, centerLon, node.optDouble("latitude"), node.optDouble("longitude"))
-            if (distance <= radiusKm) scored.add(Scored(node, distance))
+    private fun beginSearch(): Long {
+        searchGeneration++
+        map?.clear()
+        nodesById.clear()
+        selectedNodeId = null
+        detailCard.visibility = View.GONE
+        findViewById<Button>(R.id.retryButton).visibility = View.GONE
+        return searchGeneration
+    }
+
+    private fun showSearchError(error: Throwable) {
+        if (error is ApiFailure && error.status == 401) {
+            SessionStore(this).use { it.clear() }
+            session = null
+            cancelLocation()
+            Toast.makeText(this, "Session expired. Please sign in again.", Toast.LENGTH_LONG).show()
+            finish()
+            return
         }
-        scored.sortBy { it.distance }
-        scored.forEach { out.put(it.node) }
-        return out
+        status.text = if (error is ApiFailure) error.message ?: "Search failed. Please retry."
+            else "Search failed. Check your connection and retry."
+        findViewById<Button>(R.id.retryButton).visibility = View.VISIBLE
     }
 
     // ---- Markers + details ----
@@ -274,7 +316,7 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
         return null
     }
 
-    private fun plot(rows: JSONArray, announceTotal: Boolean) {
+    private fun plot(rows: JSONArray) {
         val googleMap = map ?: return
         googleMap.clear()
         for (i in 0 until rows.length()) {
@@ -287,7 +329,6 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
             )
             marker?.tag = node.optString("id")
         }
-        if (announceTotal && hasFix) reload()
     }
 
     private fun showDetails(nodeId: String) {
