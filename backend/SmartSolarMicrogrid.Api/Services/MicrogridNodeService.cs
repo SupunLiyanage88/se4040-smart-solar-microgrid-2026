@@ -33,6 +33,38 @@ public sealed class MicrogridNodeService
         if (staff) node.ActiveReservationCount = await _reservations.CountActiveAsync(node.Id, ct);
         return node;
     }
+    public async Task<List<MicrogridNode>> ListNearbyAsync(double? latitude, double? longitude, double? radiusKm, CancellationToken ct)
+    {
+        // Nearby discovery always targets active hubs; the booking API still validates capacity at reservation time.
+        if (latitude is null || longitude is null)
+            throw new NodeRuleException(400, "latitude and longitude are required.");
+        if (latitude is double.NaN || latitude < -90 || latitude > 90)
+            throw new NodeRuleException(400, "latitude must be between -90 and 90.");
+        if (longitude is double.NaN || longitude < -180 || longitude > 180)
+            throw new NodeRuleException(400, "longitude must be between -180 and 180.");
+        var radius = radiusKm ?? 10;
+        if (radius is double.NaN || radius <= 0 || radius > 100)
+            throw new NodeRuleException(400, "radiusKm must be between 0 and 100.");
+        var nodes = await _nodes.Find(Builders<MicrogridNode>.Filter.Eq(n => n.IsActive, true)).ToListAsync(ct);
+        return nodes
+            .Select(n => (node: n, distanceKm: HaversineKm(latitude.Value, longitude.Value, n.Latitude, n.Longitude)))
+            .Where(x => x.distanceKm <= radius)
+            .OrderBy(x => x.distanceKm)
+            .Select(x => x.node)
+            .ToList();
+    }
+    private static double HaversineKm(double lat1, double lon1, double lat2, double lon2)
+    {
+        // Great-circle distance; filtering stays server-side so the map only plots relevant hubs.
+        const double earthKm = 6371.0;
+        var dLat = ToRadians(lat2 - lat1);
+        var dLon = ToRadians(lon2 - lon1);
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
+            + Math.Cos(ToRadians(lat1)) * Math.Cos(ToRadians(lat2))
+            * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        return 2 * earthKm * Math.Asin(Math.Sqrt(a));
+    }
+    private static double ToRadians(double degrees) => degrees * Math.PI / 180.0;
     public async Task<MicrogridNode> CreateAsync(NodeRequestDTO request, CancellationToken ct)
     {
         // Only the service assigns node/slot identities and initial activation state.

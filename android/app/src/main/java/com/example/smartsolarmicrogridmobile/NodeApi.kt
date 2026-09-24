@@ -38,6 +38,14 @@ class NodeApi(private val server: String) {
         return runCatching { JSONArray(text) }.getOrDefault(JSONArray())
     }
 
+    /** Active nodes within [radiusKm] of a point, sorted nearest first (server-side filtering). */
+    fun nearby(latitude: Double, longitude: Double, radiusKm: Double, token: String): JSONArray {
+        val query = "?latitude=$latitude&longitude=$longitude&radiusKm=$radiusKm"
+        val (code, text) = raw("/nodes/nearby$query", token = token)
+        if (code !in 200..299) throw failure(code, text)
+        return runCatching { JSONArray(text) }.getOrDefault(JSONArray())
+    }
+
     fun get(id: String, token: String): JSONObject {
         val (code, text) = raw("/nodes/$id", token = token)
         if (code !in 200..299) throw failure(code, text)

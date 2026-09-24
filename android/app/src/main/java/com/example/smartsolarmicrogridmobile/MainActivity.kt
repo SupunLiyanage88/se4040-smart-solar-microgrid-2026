@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -52,6 +53,10 @@ class MainActivity : Activity() {
     private var draftEnd: ZonedDateTime? = null
     private var reservationView: String = "current"
     private var reservationSearch: String = ""
+    private val nearbyRequest = 9001
+    // Node chosen on the map; consumed in onResume after session revalidation so the
+    // slot picker cannot race home-screen refresh when returning from the map.
+    private var pendingNearbyNodeId: String? = null
     private val dateTimeFormat = DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm")
     // Set by showCompleteTransaction() so onActivityResult can fill the right field after a scan.
     private var scannedTokenField: EditText? = null
@@ -76,7 +81,13 @@ class MainActivity : Activity() {
         super.onResume()
         // Revalidate when returning to the app so remote deactivation is observed.
         val current = session
-        if (current != null && !busy) work({ validated(current) }) { session = it; showHome() }
+        if (current != null && !busy) work({ validated(current) }) {
+            session = it
+            pendingNearbyNodeId?.let { nodeId ->
+                pendingNearbyNodeId = null
+                openNodeFromNearby(nodeId)
+            } ?: showHome()
+        }
     }
     override fun onDestroy() {
         worker.shutdownNow()
@@ -85,6 +96,12 @@ class MainActivity : Activity() {
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, intent: android.content.Intent?) {
         super.onActivityResult(requestCode, resultCode, intent)
+        if (requestCode == nearbyRequest) {
+            if (resultCode == RESULT_OK) {
+                intent?.getStringExtra(NearbyNodesActivity.EXTRA_NODE_ID)?.let { pendingNearbyNodeId = it }
+            }
+            return
+        }
         val result: IntentResult = IntentIntegrator.parseActivityResult(requestCode, resultCode, intent) ?: return
         val text = result.contents ?: return // user cancelled the scan
         scannedTokenField?.setText(text)
@@ -260,6 +277,7 @@ class MainActivity : Activity() {
         }
     }
     private fun showLogin(info: String = "") {
+        pendingNearbyNodeId = null
         page("Welcome back", "Sign in as a Prosumer or Grid Operator.")
         if (info.isNotBlank()) label(info, 16f, color(R.color.solar_muted_green))
         // Originally an editable "Service address" field here (by SupunLiyanage88, commit f987550)
@@ -326,6 +344,7 @@ class MainActivity : Activity() {
         }
         if (prosumer) {
             button("Reserve a slot") { draftNode = null; draftSlot = null; editingReservationId = null; draftStart = null; draftEnd = null; showNodePicker() }
+            button("Find nodes nearby") { startActivityForResult(Intent(this, NearbyNodesActivity::class.java), nearbyRequest) }
             button("My reservations") { reservationSearch = ""; showReservationList("current", "") }
         } else {
             button("Pending approvals") { showPendingApprovals() }
@@ -350,6 +369,16 @@ class MainActivity : Activity() {
         button("Cancel", primary = false) { showHome() }
     }
     // ---- Prosumer reservation flow ----
+    /** Opens the existing slot picker with the node chosen on the nearby map selected. */
+    private fun openNodeFromNearby(nodeId: String) {
+        val current = session ?: return showLogin()
+        page("Choose a location", "Pick a grid node to reserve a battery slot.")
+        work({ NodeApi(current.server).get(nodeId, current.token) }) { node ->
+            draftNode = node; draftSlot = null; editingReservationId = null
+            showSlotPicker(node)
+        }
+        button("Back", primary = false) { showHome() }
+    }
     private fun showNodePicker() {
         val current = session ?: return showLogin()
         page("Choose a location", "Pick a grid node to reserve a battery slot.")
