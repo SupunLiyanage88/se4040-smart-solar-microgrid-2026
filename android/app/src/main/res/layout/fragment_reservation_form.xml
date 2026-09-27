@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/solar_background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/solar_green_dark"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SOLARGRID"
+            android:textSize="14sp"
+            android:textColor="@color/white"
+            android:textStyle="bold"
+            android:letterSpacing="0.08" />
+
+        <TextView
+            android:id="@+id/titleText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="New reservation"
+            android:textSize="22sp"
+            android:textColor="@color/white"
+            android:textStyle="bold"
+            android:paddingTop="4dp" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:id="@+id/contentLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Times are shown in your device's local time zone; the node's own operating hours are checked on the server."
+                android:textSize="15sp"
+                android:textColor="@color/solar_muted_green"
+                android:paddingBottom="16dp" />
+
+            <TextView android:id="@+id/nodeLabel" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textSize="16sp" android:textColor="@color/solar_body_text" android:paddingBottom="4dp" />
+            <TextView android:id="@+id/slotLabel" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textSize="16sp" android:textColor="@color/solar_body_text" android:paddingBottom="16dp" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Direction" android:textSize="13sp" android:textColor="@color/solar_muted_green"
+                android:textStyle="bold" android:paddingBottom="6dp" />
+            <RadioGroup android:id="@+id/directionGroup" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:layout_marginBottom="16dp">
+                <RadioButton android:id="@+id/directionDropOff" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="DROP_OFF" android:textColor="@color/solar_body_text" android:padding="6dp" />
+                <RadioButton android:id="@+id/directionCharging" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="CHARGING" android:textColor="@color/solar_body_text" android:padding="6dp" />
+            </RadioGroup>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Requested kWh" android:textSize="13sp" android:textColor="@color/solar_muted_green"
+                android:textStyle="bold" android:paddingBottom="6dp" />
+            <EditText android:id="@+id/kwhInput" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="Requested kWh" android:inputType="numberDecimal" android:background="@drawable/bg_input"
+                android:padding="14dp" android:layout_marginBottom="16dp" />
+
+            <Button android:id="@+id/startButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Start: Choose" android:textAllCaps="false" android:textSize="15sp"
+                android:textColor="@color/solar_body_text" android:background="@drawable/bg_button_secondary"
+                android:padding="14dp" android:layout_marginBottom="12dp" />
+
+            <Button android:id="@+id/endButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="End: Choose" android:textAllCaps="false" android:textSize="15sp"
+                android:textColor="@color/solar_body_text" android:background="@drawable/bg_button_secondary"
+                android:padding="14dp" android:layout_marginBottom="12dp" />
+
+            <Button android:id="@+id/submitButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Reserve" android:textAllCaps="false" android:textSize="15sp"
+                android:textColor="@color/white" android:background="@drawable/bg_button_primary"
+                android:padding="14dp" android:layout_marginBottom="12dp" />
+
+            <Button android:id="@+id/cancelButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Cancel" android:textAllCaps="false" android:textSize="15sp"
+                android:textColor="@color/solar_body_text" android:background="@drawable/bg_button_secondary"
+                android:padding="14dp" />
+
+            <TextView android:id="@+id/messageText" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textSize="15sp" android:textColor="@color/solar_error" android:paddingTop="12dp"
+                android:accessibilityLiveRegion="polite" />
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
