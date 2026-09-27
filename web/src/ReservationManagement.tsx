@@ -47,6 +47,10 @@ const statusBadge: Record<ReservationStatus, string> = {
   PENDING: 'text-bg-warning', APPROVED: 'text-bg-success', COMPLETED: 'text-bg-info',
   CANCELLED: 'text-bg-secondary', REJECTED: 'text-bg-danger',
 }
+const statusLabel: Record<ReservationStatus, string> = {
+  PENDING: 'Pending', APPROVED: 'Approved', COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled', REJECTED: 'Rejected',
+}
 
 export function ReservationManagement({ token, role, onUnauthorized }: { token: string; role: Role; onUnauthorized: () => void }) {
   const [reservations, setReservations] = useState<Reservation[]>([])
@@ -161,10 +165,10 @@ export function ReservationManagement({ token, role, onUnauthorized }: { token: 
 
   return <section aria-label="Reservation management">
     <div className="d-flex flex-wrap justify-content-between gap-3 mb-4">
-      <div><h2 className="h3">Energy slot reservations</h2><p className="text-secondary mb-0">{admin ? 'Create, update and cancel power trading reservations.' : 'Monitor bookings, approve or reject requests, and complete transactions.'}</p></div>
+      <div><h2 className="h3">Reservations</h2><p className="text-secondary mb-0">{admin ? 'Book, change and cancel energy slots.' : 'Review bookings, approve them, and mark a transfer done.'}</p></div>
       <div className="d-flex gap-2 align-self-start">
         {admin && <button className="btn btn-primary" onClick={() => open('new')} disabled={busy}>+ Create reservation</button>}
-        {gridOperator && <button className="btn btn-outline-primary" onClick={() => { setError(''); setNotice(''); setQrTokenInput(''); setCompleting(true) }} disabled={busy}>Complete a transaction</button>}
+        {gridOperator && <button className="btn btn-outline-primary" onClick={() => { setError(''); setNotice(''); setQrTokenInput(''); setCompleting(true) }} disabled={busy}>Mark transfer done</button>}
       </div>
     </div>
     {error && <div className="alert alert-danger" role="alert">{error}</div>}
@@ -204,7 +208,7 @@ export function ReservationManagement({ token, role, onUnauthorized }: { token: 
           <td>{r.requestedKwh.toLocaleString()}</td>
           <td className="text-nowrap">{formatLocal(r.startsAtUtc)}</td>
           <td className="text-nowrap">{formatLocal(r.endsAtUtc)}</td>
-          <td><span className={`badge ${statusBadge[r.status]}`}>{r.status}</span></td>
+          <td><span className={`badge ${statusBadge[r.status]}`}>{statusLabel[r.status]}</span></td>
           <td><div className="d-flex gap-2 flex-wrap">
             {r.status === 'PENDING' && <>
               <button className="btn btn-sm btn-outline-success" disabled={busy} onClick={() => void decide(r, 'APPROVE')}>Approve</button>
@@ -249,8 +253,8 @@ export function ReservationManagement({ token, role, onUnauthorized }: { token: 
             <input id="reservation-end" type="datetime-local" required className="form-control" value={draft.endsAtLocal}
               onChange={event => setDraft({ ...draft, endsAtLocal: event.target.value })} /></div>
         </div>
-        {selectedNode && <p className="small text-secondary">{(selectedNode.schedule ?? []).length === 0 ? 'This hub has no weekly opening hours.' : `Open ${(selectedNode.schedule ?? []).map(hours => `${dayNames[hours.dayOfWeek]} ${hours.opensAt}–${hours.closesAt}`).join(', ')}.`} The server rejects a time outside these hours.</p>}
-        {editing !== 'new' && <p className="small text-secondary">Updates require at least 12 hours' notice before the reservation starts; the server will reject this if that window has passed.</p>}
+        {selectedNode && <p className="small text-secondary">{(selectedNode.schedule ?? []).length === 0 ? 'This hub has no opening hours.' : `Open ${(selectedNode.schedule ?? []).map(hours => `${dayNames[hours.dayOfWeek]} ${hours.opensAt}–${hours.closesAt}`).join(', ')}.`} Must be inside these hours.</p>}
+        {editing !== 'new' && <p className="small text-secondary">Changes need 12 hours' notice.</p>}
         {editing === 'new' ? <><label className="form-label" htmlFor="reservation-nic">Prosumer NIC</label>
           <input id="reservation-nic" className="form-control mb-3" required pattern="([0-9]{12}|[0-9]{9}[vVxX])" title="12 digits, or 9 digits followed by V or X"
             value={draft.prosumerNic} onChange={event => setDraft({ ...draft, prosumerNic: event.target.value })} /></> :
@@ -264,7 +268,7 @@ export function ReservationManagement({ token, role, onUnauthorized }: { token: 
 
     {confirmCancel && <AccountDialog titleId="cancel-confirm-title" busy={busy} onClose={() => setConfirmCancel(null)}>
       <h2 id="cancel-confirm-title" className="h4">Cancel reservation?</h2>
-      <p>Cancellations require at least 12 hours' notice before the reservation starts; the server will reject this if that window has passed.</p>
+      <p>Cancellation needs 12 hours' notice.</p>
       {error && <div className="alert alert-danger" role="alert">{error}</div>}
       <div className="d-flex justify-content-end gap-2">
         <button className="btn btn-outline-secondary" disabled={busy} onClick={() => setConfirmCancel(null)}>Keep it</button>
@@ -273,15 +277,15 @@ export function ReservationManagement({ token, role, onUnauthorized }: { token: 
     </AccountDialog>}
 
     {completing && <AccountDialog titleId="complete-title" busy={busy} onClose={() => setCompleting(false)}>
-      <h2 id="complete-title" className="h4">Complete a transaction</h2>
-      <p className="text-secondary">Enter the QR token shown on the prosumer's device to mark this reservation as completed.</p>
+      <h2 id="complete-title" className="h4">Mark transfer done</h2>
+      <p className="text-secondary">Paste the code from the prosumer's phone.</p>
       {error && <div className="alert alert-danger" role="alert">{error}</div>}
       <form onSubmit={completeTransaction}>
         <label className="form-label" htmlFor="qr-token">QR token</label>
         <input id="qr-token" className="form-control mb-3" required autoFocus value={qrTokenInput} onChange={event => setQrTokenInput(event.target.value)} />
         <div className="d-flex justify-content-end gap-2">
           <button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => setCompleting(false)}>Cancel</button>
-          <button className="btn btn-primary" disabled={busy}>{busy ? 'Completing...' : 'Complete transaction'}</button>
+          <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving...' : 'Mark transfer done'}</button>
         </div>
       </form>
     </AccountDialog>}
