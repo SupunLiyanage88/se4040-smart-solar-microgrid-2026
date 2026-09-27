@@ -17,7 +17,7 @@ export async function api<T>(path: string, token: string | null, method = 'GET',
       method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000),
     })
-  } catch { throw new ApiError('Cannot reach the account service. Check your connection and try again.', 0) }
+  } catch { throw new ApiError('Cannot reach the server. Check your connection and try again.', 0) }
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
     const message = data.message || (data.errors ? Object.values(data.errors).flat().join(' ') : data.title)
