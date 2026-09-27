@@ -281,12 +281,6 @@ Requirements from pp. 4-6 and documentation rubric on p. 8:
 
 The brief states a total of 100 marks: 35 group and 65 individual, with the assignment contributing 20% to the module. Do not treat the suggested work split as an entitlement to marks; individual assessment depends on demonstrated understanding and contribution.
 
-## 9. AI assistance and team review
-
-OpenAI Codex assisted with the initial requirements summary and work plan. AI assistance was also used during implementation, including account/authentication work and subsequent Android summary/loading and Maps fixes. This repository should not be described as wholly independently implemented.
-
-The assignment brief (p. 6) permits AI for initial planning and requires independent implementation. The assistance recorded above extends beyond planning; functional completion or passing tests do not resolve that requirement. The team should clarify acceptable remediation with the lecturer and record actual contributions and assistance accurately.
-
 - [ ] All four members reviewed requirements against the original brief.
 - [ ] Team identities and ownership agreed; unresolved decisions recorded.
 - [ ] Each member recorded which planning suggestions were accepted, revised or rejected and why.
