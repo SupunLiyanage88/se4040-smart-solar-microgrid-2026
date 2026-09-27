@@ -1,5 +1,5 @@
 // Smart Solar Microgrid Trading System
-// Reservation endpoints. Business rules stay in the reservation service.
+// Reservation endpoints.
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
@@ -15,7 +15,7 @@ public sealed class ReservationController : ControllerBase
     private readonly ReservationService _reservations;
     public ReservationController(ReservationService reservations)
     {
-        // Delegate booking decisions to the central service.
+        // Pass the request to the reservation service.
         _reservations = reservations;
     }
     [HttpPost]
