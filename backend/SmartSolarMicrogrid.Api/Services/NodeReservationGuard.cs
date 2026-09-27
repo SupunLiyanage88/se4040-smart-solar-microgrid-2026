@@ -1,5 +1,5 @@
 // Smart Solar Microgrid Trading System
-// Read-only contract with energy reservations; booking creation is a separate feature.
+// Checks bookings before a hub is changed.
 using MongoDB.Bson;
 using MongoDB.Driver;
 namespace SmartSolarMicrogrid.Api.Services;
@@ -29,7 +29,7 @@ public sealed class NodeReservationGuard
     }
     public static async Task InitializeAsync(IMongoDatabase database)
     {
-        // These indexes also support the future reservation module's node/slot queries.
+        // Index bookings by hub and status, and by hub and slot.
         var collection = database.GetCollection<BsonDocument>(CollectionName);
         await collection.Indexes.CreateManyAsync([
             new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("NodeId").Ascending("Status")),

@@ -1,5 +1,5 @@
 // Smart Solar Microgrid Trading System
-// Booking document. NodeId and SlotId match the hub deactivation guard.
+// A saved booking.
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 namespace SmartSolarMicrogrid.Api.Models;

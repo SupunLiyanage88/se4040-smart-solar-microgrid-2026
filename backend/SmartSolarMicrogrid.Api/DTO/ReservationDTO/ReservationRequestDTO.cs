@@ -31,7 +31,7 @@ public sealed class UpdateReservationRequestDTO : IValidatableObject
     [Required] public DateTime? EndsAtUtc { get; set; }
     public IEnumerable<ValidationResult> Validate(ValidationContext context)
     {
-        // The replacement window is checked on its own after the 12-hour notice rule.
+        // The end time must be after the start time.
         if (StartsAtUtc is not null && EndsAtUtc is not null && EndsAtUtc <= StartsAtUtc)
             yield return new ValidationResult("The reservation must end after it starts.", [nameof(EndsAtUtc)]);
     }
