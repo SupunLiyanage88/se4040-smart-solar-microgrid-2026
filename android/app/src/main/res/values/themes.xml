@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <style name="Theme.SmartSolarMicrogridMobile" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.SmartSolarMicrogridMobile" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">@color/solar_green</item>
+        <item name="colorPrimaryDark">@color/solar_green_dark</item>
+        <item name="colorAccent">@color/solar_green</item>
+        <item name="android:windowBackground">@color/solar_background</item>
+    </style>
 </resources>

@@ -25,7 +25,7 @@ public sealed class ReservationService
     }
     public async Task<ReservationResponseDTO> CreateAsync(CreateReservationRequestDTO request, string callerNic, bool staff, CancellationToken ct)
     {
-        // New bookings wait for approval and do not issue a QR token yet.
+        // A new booking starts as pending, with no QR code.
         var nic = await ResolveProsumerAsync(request.ProsumerNic, callerNic, staff, ct);
         var start = AsUtc(request.StartsAtUtc!.Value);
         var end = AsUtc(request.EndsAtUtc!.Value);
@@ -81,7 +81,7 @@ public sealed class ReservationService
     }
     public async Task<ReservationSummaryDTO> SummaryAsync(string callerNic, bool staff, CancellationToken ct)
     {
-        // Dashboard counts: pending bookings, and approved bookings that have not started.
+        // Count pending bookings, and approved bookings that have not started.
         var owner = staff
             ? Builders<EnergyReservation>.Filter.Empty
             : Builders<EnergyReservation>.Filter.Eq(r => r.ProsumerNic, callerNic);
@@ -140,7 +140,7 @@ public sealed class ReservationService
     }
     public async Task<ReservationResponseDTO> CancelAsync(string id, string callerNic, bool staff, CancellationToken ct)
     {
-        // Cancellation is terminal and removes any QR token already issued.
+        // Cancel the booking and remove its QR code.
         var reservation = await RequireChangeableAsync(id, callerNic, staff, ct);
         RequireNotice(reservation.StartsAtUtc);
         reservation.Status = ReservationStatus.CANCELLED;
@@ -151,7 +151,7 @@ public sealed class ReservationService
     }
     public async Task<ReservationResponseDTO> DecideAsync(string id, string decision, CancellationToken ct)
     {
-        // Approval issues a new opaque token. Rejection closes the booking.
+        // Approve creates a QR code. Reject closes the booking.
         var reservation = await RequireAsync(id, ct);
         if (reservation.Status != ReservationStatus.PENDING)
             throw new ReservationRuleException(409, "Only a pending reservation can be approved or rejected.");
@@ -187,7 +187,7 @@ public sealed class ReservationService
     }
     public static async Task InitializeAsync(IMongoDatabase database)
     {
-        // An empty token must not occupy the unique index, so each pending booking can be saved.
+        // Remove blank QR codes so pending bookings can be saved.
         var reservations = database.GetCollection<EnergyReservation>(NodeReservationGuard.CollectionName);
         await reservations.UpdateManyAsync(
             Builders<EnergyReservation>.Filter.Eq("QrToken", BsonNull.Value),
@@ -216,7 +216,7 @@ public sealed class ReservationService
     }
     private async Task<(MicrogridNode Node, BatterySlot Battery)> RequireBookableSlotAsync(string nodeId, string slotId, DateTime start, DateTime end, decimal requestedKwh, CancellationToken ct)
     {
-        // The hub, physical slot, local operating hours, horizon and power limit must all allow the window.
+        // Check the hub, slot, opening hours, 7-day limit and power.
         if (start <= DateTime.UtcNow)
             throw new ReservationRuleException(400, "Reservations must start in the future.");
         if (start > DateTime.UtcNow.AddDays(7))
@@ -259,7 +259,7 @@ public sealed class ReservationService
     }
     private async Task EnsureStoredCapacityAsync(string nodeId, string slotId, decimal capacity, DateTime start, DateTime end, CancellationToken ct)
     {
-        // Recheck after the write so two simultaneous bookings cannot both take the last capacity.
+        // Check the slot again after saving, in case another booking took the space.
         var rows = await _reservations.Find(OverlapFilter(nodeId, slotId, start, end, null)).ToListAsync(ct);
         if (rows.Sum(r => r.RequestedKwh) > capacity)
             throw new ReservationRuleException(409, "The selected battery slot does not have enough remaining capacity.");
@@ -278,7 +278,7 @@ public sealed class ReservationService
     }
     private static FilterDefinition<EnergyReservation> ViewFilter(string? view)
     {
-        // Current, pending and history are the booking lists the mobile dashboard requests.
+        // Choose current, pending or history bookings.
         var now = DateTime.UtcNow;
         return view?.Trim().ToLowerInvariant() switch
         {
@@ -301,13 +301,13 @@ public sealed class ReservationService
     }
     private async Task<EnergyReservation> RequireAsync(string id, CancellationToken ct)
     {
-        // Missing bookings are a not-found result rather than an empty document.
+        // Return not found when the booking does not exist.
         return await _reservations.Find(r => r.Id == id).FirstOrDefaultAsync(ct)
             ?? throw new ReservationRuleException(404, "Reservation not found.");
     }
     private static void EnsureCanRead(EnergyReservation reservation, string callerNic, bool staff)
     {
-        // Ownership is enforced in the API even when a client guesses another reservation id.
+        // A prosumer can only open their own booking.
         if (!staff && reservation.ProsumerNic != callerNic)
             throw new ReservationRuleException(403, "You can only access your own reservations.");
     }
@@ -378,7 +378,7 @@ public sealed class ReservationService
     }
     private static DateTime AsUtc(DateTime value)
     {
-        // Request fields are UTC instants. A value without a kind is already expressed in UTC.
+        // Treat the sent time as UTC.
         return value.Kind switch
         {
             DateTimeKind.Utc => value,
@@ -388,7 +388,7 @@ public sealed class ReservationService
     }
     private static TimeZoneInfo ResolveColombo()
     {
-        // Hub schedules use Asia/Colombo. Older Windows zone data exposes the legacy id.
+        // Opening hours use Sri Lanka time.
         try { return TimeZoneInfo.FindSystemTimeZoneById("Asia/Colombo"); }
         catch (TimeZoneNotFoundException) { return TimeZoneInfo.FindSystemTimeZoneById("Sri Lanka Standard Time"); }
     }

@@ -13,6 +13,8 @@ zxingEmbedded = "4.3.0"
 fragmentKtx = "1.8.0"
 playServicesMaps = "18.2.0"
 playServicesLocation = "21.0.1"
+navigation = "2.8.5"
+lifecycleViewmodel = "2.11.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -34,6 +36,9 @@ zxing-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", v
 androidx-fragment-ktx = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragmentKtx" }
 play-services-maps = { group = "com.google.android.gms", name = "play-services-maps", version.ref = "playServicesMaps" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+androidx-navigation-fragment = { group = "androidx.navigation", name = "navigation-fragment-ktx", version.ref = "navigation" }
+androidx-navigation-ui = { group = "androidx.navigation", name = "navigation-ui-ktx", version.ref = "navigation" }
+androidx-lifecycle-viewmodel = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-ktx", version.ref = "lifecycleViewmodel" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

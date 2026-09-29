@@ -1,5 +1,5 @@
 // Smart Solar Microgrid Trading System
-// Status values stored as uppercase strings so hub deactivation can read them.
+// Booking status names.
 using System.Text.Json.Serialization;
 namespace SmartSolarMicrogrid.Api.Models;
 [JsonConverter(typeof(JsonStringEnumConverter))]
