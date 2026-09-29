@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/loginFragment">
+
+    <fragment
+        android:id="@+id/loginFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.auth.LoginFragment"
+        android:label="Sign in"
+        tools:layout="@layout/fragment_login">
+        <argument
+            android:name="info"
+            app:argType="string"
+            android:defaultValue="" />
+        <action
+            android:id="@+id/action_login_to_register"
+            app:destination="@id/registerFragment" />
+        <action
+            android:id="@+id/action_login_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/loginFragment"
+            app:popUpToInclusive="true" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/registerFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.auth.RegisterFragment"
+        android:label="Register"
+        tools:layout="@layout/fragment_register">
+        <action
+            android:id="@+id/action_register_to_login"
+            app:destination="@id/loginFragment"
+            app:popUpTo="@id/registerFragment"
+            app:popUpToInclusive="true" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/homeFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.home.HomeFragment"
+        android:label="Home"
+        tools:layout="@layout/fragment_home">
+        <action
+            android:id="@+id/action_home_to_profile"
+            app:destination="@id/profileFragment" />
+        <action
+            android:id="@+id/action_home_to_nodePicker"
+            app:destination="@id/nodePickerFragment" />
+        <action
+            android:id="@+id/action_home_to_reservationList"
+            app:destination="@id/reservationListFragment" />
+        <action
+            android:id="@+id/action_home_to_pendingApprovals"
+            app:destination="@id/pendingApprovalsFragment" />
+        <action
+            android:id="@+id/action_home_to_completeTransaction"
+            app:destination="@id/completeTransactionFragment" />
+        <action
+            android:id="@+id/action_home_to_login"
+            app:destination="@id/loginFragment"
+            app:popUpTo="@id/nav_graph"
+            app:popUpToInclusive="true" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/profileFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.profile.ProfileFragment"
+        android:label="My profile"
+        tools:layout="@layout/fragment_profile">
+        <action
+            android:id="@+id/action_profile_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/homeFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/nodePickerFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.reservation.NodePickerFragment"
+        android:label="Choose a location"
+        tools:layout="@layout/fragment_node_picker">
+        <action
+            android:id="@+id/action_nodePicker_to_slotPicker"
+            app:destination="@id/slotPickerFragment" />
+        <action
+            android:id="@+id/action_nodePicker_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/homeFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/slotPickerFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.reservation.SlotPickerFragment"
+        android:label="Choose a slot"
+        tools:layout="@layout/fragment_slot_picker">
+        <argument
+            android:name="node"
+            app:argType="string" />
+        <action
+            android:id="@+id/action_slotPicker_to_reservationForm"
+            app:destination="@id/reservationFormFragment" />
+        <action
+            android:id="@+id/action_slotPicker_to_nodePicker"
+            app:destination="@id/nodePickerFragment"
+            app:popUpTo="@id/nodePickerFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/reservationFormFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.reservation.ReservationFormFragment"
+        android:label="Reservation"
+        tools:layout="@layout/fragment_reservation_form">
+        <argument
+            android:name="node"
+            app:argType="string" />
+        <argument
+            android:name="slot"
+            app:argType="string" />
+        <argument
+            android:name="reservationId"
+            app:argType="string"
+            app:nullable="true"
+            android:defaultValue="@null" />
+        <action
+            android:id="@+id/action_reservationForm_to_reservationSummary"
+            app:destination="@id/reservationSummaryFragment" />
+        <action
+            android:id="@+id/action_reservationForm_to_reservationList"
+            app:destination="@id/reservationListFragment" />
+        <action
+            android:id="@+id/action_reservationForm_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/homeFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/reservationListFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.reservation.ReservationListFragment"
+        android:label="Reservations"
+        tools:layout="@layout/fragment_reservation_list">
+        <argument
+            android:name="view"
+            app:argType="string"
+            android:defaultValue="current" />
+        <argument
+            android:name="search"
+            app:argType="string"
+            android:defaultValue="" />
+        <action
+            android:id="@+id/action_reservationList_to_reservationDetail"
+            app:destination="@id/reservationDetailFragment" />
+        <action
+            android:id="@+id/action_reservationList_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/homeFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/reservationDetailFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.reservation.ReservationDetailFragment"
+        android:label="Reservation"
+        tools:layout="@layout/fragment_reservation_detail">
+        <argument
+            android:name="reservationId"
+            app:argType="string" />
+        <action
+            android:id="@+id/action_reservationDetail_to_reservationForm"
+            app:destination="@id/reservationFormFragment" />
+        <action
+            android:id="@+id/action_reservationDetail_to_reservationSummary"
+            app:destination="@id/reservationSummaryFragment" />
+        <action
+            android:id="@+id/action_reservationDetail_to_reservationList"
+            app:destination="@id/reservationListFragment"
+            app:popUpTo="@id/reservationListFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/reservationSummaryFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.reservation.ReservationSummaryFragment"
+        android:label="Reservation"
+        tools:layout="@layout/fragment_reservation_summary">
+        <argument
+            android:name="action"
+            app:argType="string" />
+        <argument
+            android:name="reservation"
+            app:argType="string" />
+        <argument
+            android:name="returnView"
+            app:argType="string" />
+        <action
+            android:id="@+id/action_reservationSummary_to_reservationDetail"
+            app:destination="@id/reservationDetailFragment" />
+        <action
+            android:id="@+id/action_reservationSummary_to_reservationList"
+            app:destination="@id/reservationListFragment"
+            app:popUpTo="@id/reservationListFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/pendingApprovalsFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.approval.PendingApprovalsFragment"
+        android:label="Pending approvals"
+        tools:layout="@layout/fragment_pending_approvals">
+        <action
+            android:id="@+id/action_pendingApprovals_to_approvalDetail"
+            app:destination="@id/approvalDetailFragment" />
+        <action
+            android:id="@+id/action_pendingApprovals_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/homeFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/approvalDetailFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.approval.ApprovalDetailFragment"
+        android:label="Reservation request"
+        tools:layout="@layout/fragment_approval_detail">
+        <argument
+            android:name="reservationId"
+            app:argType="string" />
+        <action
+            android:id="@+id/action_approvalDetail_to_pendingApprovals"
+            app:destination="@id/pendingApprovalsFragment"
+            app:popUpTo="@id/pendingApprovalsFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/completeTransactionFragment"
+        android:name="com.example.smartsolarmicrogridmobile.ui.transaction.CompleteTransactionFragment"
+        android:label="Complete a transaction"
+        tools:layout="@layout/fragment_complete_transaction">
+        <action
+            android:id="@+id/action_completeTransaction_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/homeFragment" />
+    </fragment>
+
+</navigation>
