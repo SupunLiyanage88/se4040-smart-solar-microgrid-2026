@@ -66,7 +66,7 @@ async Task<JsonNode> Request(string path, HttpStatusCode expected, string method
     using var response = await client.SendAsync(request);
     var text = await response.Content.ReadAsStringAsync();
     Check(response.StatusCode == expected, $"{method} {path}: {(int)expected}");
-    return JsonNode.Parse(text) ?? new JsonObject();
+    return string.IsNullOrWhiteSpace(text) ? new JsonObject() : JsonNode.Parse(text) ?? new JsonObject();
 }
 async Task<string> Login(string email, string password = "Synthetic-test-pass-42")
 {
@@ -182,6 +182,17 @@ async Task CheckNodes(string officer, string op, string prosumer)
     Check(outcomes.Count(code => code == HttpStatusCode.OK) == 1 && outcomes.Count(code => code == HttpStatusCode.Conflict) == 1, "Concurrent node edits preserve optimistic concurrency");
     node = await Request(path, HttpStatusCode.OK, token: officer);
     await Request(path + "/status", HttpStatusCode.OK, "PATCH", new { isActive = true, revision = node["revision"]!.GetValue<long>() }, officer);
+    await Request(path + "?revision=" + node["revision"], HttpStatusCode.Forbidden, "DELETE", token: op);
+    await Request(path + "?revision=" + node["revision"], HttpStatusCode.Forbidden, "DELETE", token: prosumer);
+    await Request(path, HttpStatusCode.BadRequest, "DELETE", token: officer);
+    await Request(path + "?revision=" + node["revision"], HttpStatusCode.Conflict, "DELETE", token: officer);
+    Check(await database.GetCollection<BsonDocument>(MicrogridNodeService.CollectionName).Find(new BsonDocument("_id", id)).AnyAsync(), "Booking history preserves its node");
+    var disposable = await Request("/nodes", HttpStatusCode.Created, "POST", ValidNode("Unused Hub"), officer);
+    var disposablePath = "/nodes/" + disposable["id"]!.GetValue<string>();
+    await Request(disposablePath + "?revision=2", HttpStatusCode.Conflict, "DELETE", token: officer);
+    await Request(disposablePath + "?revision=1", HttpStatusCode.NoContent, "DELETE", token: officer);
+    await Request(disposablePath, HttpStatusCode.NotFound, token: officer);
+    Check(!await database.GetCollection<BsonDocument>(MicrogridNodeService.CollectionName).Find(new BsonDocument("_id", disposable["id"]!.GetValue<string>())).AnyAsync(), "Unused node is deleted from MongoDB");
 }
 
 try

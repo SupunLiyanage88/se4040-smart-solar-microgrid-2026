@@ -57,6 +57,15 @@ public sealed class MicrogridNodeController : ControllerBase
         // The service rejects deactivation when active reservations exist.
         return _nodes.SetStatusAsync(id, request, ct);
     }
+    [HttpDelete("{id}")]
+    [Authorize(Roles = "BACKOFFICE")]
+    public async Task<IActionResult> Delete(string id, [FromQuery] long? revision, CancellationToken ct)
+    {
+        // Backoffice may remove only an unchanged hub with no booking history.
+        if (revision is null or < 1) return BadRequest(new { message = "Specify a valid node revision." });
+        await _nodes.DeleteAsync(id, revision.Value, ct);
+        return NoContent();
+    }
     [HttpPatch("{id}/slots/{slotId}/availability")]
     [Authorize(Roles = "BACKOFFICE,GRID_OPERATOR")]
     public Task<MicrogridNode> Availability(string id, string slotId, SlotAvailabilityRequestDTO request, CancellationToken ct)

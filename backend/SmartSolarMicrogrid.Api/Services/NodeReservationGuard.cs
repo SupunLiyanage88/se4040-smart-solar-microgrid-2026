@@ -27,6 +27,11 @@ public sealed class NodeReservationGuard
             & Builders<BsonDocument>.Filter.In("SlotId", slotIds);
         return await _reservations.Find(filter).AnyAsync(ct);
     }
+    public async Task<bool> HasHistoryAsync(string nodeId, CancellationToken ct)
+    {
+        // A hub with any booking history must retain its identity for past reservations.
+        return await _reservations.Find(Builders<BsonDocument>.Filter.Eq("NodeId", nodeId)).AnyAsync(ct);
+    }
     public static async Task InitializeAsync(IMongoDatabase database)
     {
         // Index bookings by hub and status, and by hub and slot.

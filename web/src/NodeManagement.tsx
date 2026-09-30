@@ -24,6 +24,7 @@ export function NodeManagement({ token, role, onUnauthorized }: { token: string;
   const [editing, setEditing] = useState<GridNode | 'new' | null>(null)
   const [draft, setDraft] = useState<NodeDraft>(fresh)
   const [confirm, setConfirm] = useState<GridNode | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<GridNode | null>(null)
   const [reload, setReload] = useState(0)
   const admin = role === 'BACKOFFICE'
   const locked = editing !== null && editing !== 'new' && editing.activeReservationCount > 0
@@ -66,6 +67,14 @@ export function NodeManagement({ token, role, onUnauthorized }: { token: string;
     try {
       replace(await api<GridNode>(`/nodes/${node.id}/status`, token, 'PATCH', { isActive: !node.isActive, revision: node.revision }))
       setConfirm(null); setNotice(`${node.name} ${node.isActive ? 'deactivated' : 'reactivated'}.`)
+    } catch (reason) { failure(reason) } finally { setBusy(false) }
+  }
+  async function deleteNode(node: GridNode) {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      await api<void>(`/nodes/${node.id}?revision=${node.revision}`, token, 'DELETE')
+      setNodes(previous => previous.filter(item => item.id !== node.id))
+      setConfirmDelete(null); setNotice(`${node.name} deleted.`)
     } catch (reason) { failure(reason) } finally { setBusy(false) }
   }
   async function availability(node: GridNode, slot: Slot) {
@@ -114,7 +123,7 @@ export function NodeManagement({ token, role, onUnauthorized }: { token: string;
         <h4 className="h6 mt-4">Battery slots</h4><ul className="list-group list-group-flush mb-3">{node.batterySlots.map(slot => <li className="list-group-item px-0 d-flex justify-content-between align-items-center gap-2" key={slot.id}><span>{slot.name} <span className="small text-secondary">({slot.capacityKwh} kWh)</span><span className="d-block small">{slot.isAvailable ? 'Open' : 'Unavailable'}</span></span><button className="btn btn-sm btn-outline-secondary" aria-label={`${slot.isAvailable ? 'Disable' : 'Enable'} ${slot.name} at ${node.name}`} disabled={busy || !node.isActive || node.activeReservationCount > 0} onClick={() => void availability(node, slot)}>{slot.isAvailable ? 'Mark unavailable' : 'Make available'}</button></li>)}</ul>
         <details className="mb-3"><summary className="fw-semibold">Weekly operating hours</summary><p className="small text-secondary mt-2">All times: {node.timeZone}. Unlisted days are closed.</p><ul className="small">{node.schedule.map(day => <li key={day.dayOfWeek}>{days[day.dayOfWeek]}: {day.opensAt} - {day.closesAt}</li>)}</ul></details>
         {node.activeReservationCount > 0 && <p className="small text-warning-emphasis">Active reservations prevent deactivation and changes to capacity, slots or schedules.</p>}
-        {admin && <div className="d-flex gap-2"><button className="btn btn-outline-secondary" disabled={busy} onClick={() => open(node)}>Edit node</button><button className={`btn ${node.isActive ? 'btn-outline-danger' : 'btn-outline-success'}`} disabled={busy || (node.isActive && node.activeReservationCount > 0)} onClick={() => { setError(''); setConfirm(node) }}>{node.isActive ? 'Deactivate node' : 'Reactivate node'}</button></div>}
+        {admin && <div className="d-flex flex-wrap gap-2"><button className="btn btn-outline-secondary" disabled={busy} onClick={() => open(node)}>Edit node</button><button className={`btn ${node.isActive ? 'btn-outline-danger' : 'btn-outline-success'}`} disabled={busy || (node.isActive && node.activeReservationCount > 0)} onClick={() => { setError(''); setConfirm(node) }}>{node.isActive ? 'Deactivate node' : 'Reactivate node'}</button><button className="btn btn-outline-danger" disabled={busy || node.activeReservationCount > 0} onClick={() => { setError(''); setConfirmDelete(node) }}>Delete node</button></div>}
       </article></div>)}</div>}
     {editing && <AccountDialog titleId="node-editor-title" busy={busy} onClose={() => setEditing(null)}><h2 id="node-editor-title" className="h4">{editing === 'new' ? 'Create grid node' : 'Edit grid node'}</h2>
       {error && <div className="alert alert-danger" role="alert">{error}</div>}
@@ -140,5 +149,6 @@ export function NodeManagement({ token, role, onUnauthorized }: { token: string;
       </form>
     </AccountDialog>}
     {confirm && <AccountDialog titleId="node-confirm-title" busy={busy} onClose={() => setConfirm(null)}><h2 id="node-confirm-title" className="h4">{confirm.isActive ? 'Deactivate' : 'Reactivate'} {confirm.name}?</h2><p>{confirm.isActive ? 'Prosumers will no longer see this hub. It stays if bookings are still active.' : 'Prosumers will see this hub again.'}</p>{error && <div className="alert alert-danger" role="alert">{error}</div>}<div className="d-flex justify-content-end gap-2"><button className="btn btn-outline-secondary" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button><button className="btn btn-primary" disabled={busy} onClick={() => void changeStatus(confirm)}>{busy ? 'Saving...' : 'Confirm'}</button></div></AccountDialog>}
+    {confirmDelete && <AccountDialog titleId="node-delete-title" busy={busy} onClose={() => setConfirmDelete(null)}><h2 id="node-delete-title" className="h4">Delete {confirmDelete.name}?</h2><p>This permanently removes the node. Nodes with any reservation history cannot be deleted; deactivate them instead.</p>{error && <div className="alert alert-danger" role="alert">{error}</div>}<div className="d-flex justify-content-end gap-2"><button className="btn btn-outline-secondary" disabled={busy} onClick={() => setConfirmDelete(null)}>Cancel</button><button className="btn btn-danger" disabled={busy} onClick={() => void deleteNode(confirmDelete)}>{busy ? 'Deleting...' : 'Delete node'}</button></div></AccountDialog>}
   </section>
 }

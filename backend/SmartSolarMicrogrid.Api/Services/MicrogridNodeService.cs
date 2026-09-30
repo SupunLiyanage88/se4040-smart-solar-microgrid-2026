@@ -64,7 +64,11 @@ public sealed class MicrogridNodeService
             * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
         return 2 * earthKm * Math.Asin(Math.Sqrt(a));
     }
-    private static double ToRadians(double degrees) => degrees * Math.PI / 180.0;
+    private static double ToRadians(double degrees)
+    {
+        // Convert GPS coordinates for the great-circle distance calculation.
+        return degrees * Math.PI / 180.0;
+    }
     public async Task<MicrogridNode> CreateAsync(NodeRequestDTO request, CancellationToken ct)
     {
         // Only the service assigns node/slot identities and initial activation state.
@@ -103,6 +107,17 @@ public sealed class MicrogridNodeService
             throw new NodeRuleException(409, $"Cannot deactivate this node: {node.ActiveReservationCount} active reservation(s) remain.");
         node.IsActive = request.IsActive.Value;
         return await SaveAsync(node, request.Revision.Value, ct);
+    }
+    public async Task DeleteAsync(string id, long revision, CancellationToken ct)
+    {
+        // Delete only an unchanged hub with no reservations, including historical ones.
+        var node = await GetAsync(id, true, ct);
+        EnsureRevision(node, revision);
+        if (await _reservations.HasHistoryAsync(id, ct))
+            throw new NodeRuleException(409, "This node has reservation history and cannot be deleted. Deactivate it instead.");
+        var result = await _nodes.DeleteOneAsync(n => n.Id == id && n.Revision == revision, ct);
+        if (result.DeletedCount == 0)
+            throw new NodeRuleException(409, "This node changed. Refresh and retry with the latest details.");
     }
     public async Task<MicrogridNode> SetSlotAvailabilityAsync(string id, string slotId, SlotAvailabilityRequestDTO request, CancellationToken ct)
     {
