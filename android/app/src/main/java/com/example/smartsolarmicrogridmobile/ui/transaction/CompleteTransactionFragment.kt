@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
@@ -23,6 +24,10 @@ class CompleteTransactionFragment : Fragment() {
     private val sessionVm: SessionViewModel by activityViewModels()
     private lateinit var tokenInput: EditText
     private lateinit var messageText: TextView
+    private val scanLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val text = IntentIntegrator.parseActivityResult(result.resultCode, result.data)?.contents ?: return@registerForActivityResult
+        if (::tokenInput.isInitialized) tokenInput.setText(text)
+    }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_complete_transaction, container, false)
@@ -32,12 +37,13 @@ class CompleteTransactionFragment : Fragment() {
         messageText = view.findViewById(R.id.messageText)
 
         view.findViewById<View>(R.id.scanButton).setOnClickListener {
-            IntentIntegrator(requireActivity()).apply {
+            val scan = IntentIntegrator(requireActivity()).apply {
                 setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
                 setPrompt("Point the camera at the prosumer's transaction QR code")
                 setBeepEnabled(true)
                 setOrientationLocked(true)
-            }.initiateScan()
+            }
+            scanLauncher.launch(scan.createScanIntent())
         }
 
         view.findViewById<View>(R.id.completeButton).setOnClickListener { complete() }
@@ -72,10 +78,4 @@ class CompleteTransactionFragment : Fragment() {
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data) ?: return
-        val text = result.contents ?: return
-        tokenInput.setText(text)
-    }
 }
