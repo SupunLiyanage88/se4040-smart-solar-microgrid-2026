@@ -2,6 +2,9 @@ package com.example.smartsolarmicrogridmobile
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavController
 import androidx.navigation.fragment.NavHostFragment
@@ -19,6 +22,18 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // Edge-to-edge is enforced on current Android versions: keep the header below the status bar
+        // and the screens above the keyboard and navigation bar.
+        val root = findViewById<android.view.View>(R.id.nav_host_fragment)
+        root.setBackgroundColor(getColor(R.color.solar_green_dark))
+        WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars = false
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, keyboard.bottom))
+            insets
+        }
 
         sessionVm = ViewModelProvider(this)[SessionViewModel::class.java]
         val navHostFragment = supportFragmentManager

@@ -14,6 +14,7 @@ import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.example.smartsolarmicrogridmobile.AccountSession
+import com.example.smartsolarmicrogridmobile.NodeApi
 import com.example.smartsolarmicrogridmobile.R
 import com.example.smartsolarmicrogridmobile.ReservationApi
 import com.example.smartsolarmicrogridmobile.encodeQrBitmap
@@ -87,7 +88,23 @@ class ReservationDetailFragment : Fragment() {
 
         val nic = r.optString("prosumerNic")
         if (nic.isNotBlank()) contentLayout.label("Prosumer: $nic")
-        contentLayout.label("Node: ${r.optString("nodeId")}    Slot: ${r.optString("slotId")}")
+        val nodeLabel = contentLayout.label("Node: ${r.optString("nodeId")}    Slot: ${r.optString("slotId")}")
+        // Resolve readable names; the edit form also needs the real node and slot (name, capacity).
+        var nodeJson = JSONObject().put("id", r.optString("nodeId")).put("name", r.optString("nodeId"))
+        var slotJson = JSONObject().put("id", r.optString("slotId")).put("name", r.optString("slotId")).put("capacityKwh", 0)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val node = withContext(Dispatchers.IO) {
+                runCatching { NodeApi(session.server).get(r.optString("nodeId"), session.token) }.getOrNull()
+            } ?: return@launch
+            nodeJson = node
+            val slots = node.optJSONArray("batterySlots")
+            var slotName = r.optString("slotId")
+            for (j in 0 until (slots?.length() ?: 0)) {
+                val slot = slots!!.getJSONObject(j)
+                if (slot.optString("id") == r.optString("slotId")) { slotJson = slot; slotName = slot.optString("name", slotName) }
+            }
+            nodeLabel.text = "Node: ${node.optString("name", r.optString("nodeId"))}    Slot: $slotName"
+        }
         contentLayout.label("Direction: ${r.getString("direction")}    Requested: ${r.get("requestedKwh")} kWh")
 
         val start = runCatching { Instant.parse(r.getString("startsAtUtc")).atZone(ZoneId.systemDefault()).format(dateTimeFormat) }
@@ -117,17 +134,19 @@ class ReservationDetailFragment : Fragment() {
         }
 
         if (!isOperator && (status == "PENDING" || status == "APPROVED")) {
+            contentLayout.label("Changes and cancellations need at least 12 hours' notice before the start time.", 14f, ctx.color(R.color.solar_muted_green))
             contentLayout.button("Modify") {
                 val args = Bundle().apply {
                     putString("reservationId", r.getString("id"))
-                    putString("node", JSONObject().put("id", r.optString("nodeId")).put("name", r.optString("nodeId")).toString())
-                    putString("slot", JSONObject().put("id", r.optString("slotId")).put("name", r.optString("slotId")).put("capacityKwh", 0).toString())
+                    putString("node", nodeJson.toString())
+                    putString("slot", slotJson.toString())
+                    putString("reservation", r.toString())
                 }
                 findNavController().navigate(R.id.action_reservationDetail_to_reservationForm, args)
             }
             contentLayout.button("Cancel reservation", primary = false) {
                 AlertDialog.Builder(ctx).setTitle("Cancel this reservation?")
-                    .setMessage("This cannot be undone.")
+                    .setMessage("This cannot be undone. Cancellations need at least 12 hours' notice before the start time.")
                     .setNegativeButton("Keep it", null).setPositiveButton("Cancel reservation") { _, _ ->
                         sessionVm.setBusy(true)
                         viewLifecycleOwner.lifecycleScope.launch {

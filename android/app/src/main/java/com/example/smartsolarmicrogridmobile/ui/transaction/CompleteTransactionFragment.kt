@@ -71,9 +71,14 @@ class CompleteTransactionFragment : Fragment() {
             result.fold(
                 onSuccess = { r ->
                     tokenInput.setText("")
+                    // Success is shown in green; failures keep the error colour.
+                    messageText.setTextColor(requireContext().getColor(R.color.solar_status_approved_fg))
                     sessionVm.setMessage("Transaction completed. Status: ${r.optString("status")}")
                 },
-                onFailure = { sessionVm.setMessage(it.message) }
+                onFailure = {
+                    messageText.setTextColor(requireContext().getColor(R.color.solar_error))
+                    sessionVm.setMessage(it.message)
+                }
             )
         }
     }

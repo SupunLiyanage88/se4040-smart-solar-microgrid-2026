@@ -41,7 +41,7 @@ WEB_SRC = REPO_ROOT / "web" / "src"
 
 # Template scaffold kept only as a health sample; real endpoints must follow
 # the fat-service rules. Delete it when no longer needed.
-SCAFFOLD_ALLOWLIST = {"WeatherForecastController.cs", "WeatherForecast.cs"}
+SCAFFOLD_ALLOWLIST: set[str] = set()
 # Console output is acceptable only while the host/logger is being bootstrapped.
 BOOTSTRAP_ALLOWLIST = {"Program.cs", "AccountSetup.cs"}
 

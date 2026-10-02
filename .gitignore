@@ -30,3 +30,6 @@ Thumbs.db
 # Claude Code
 CLAUDE.md
 .claude/
+# Report and evidence (submitted in the ZIP, not in the repository)
+*.docx
+evidence/

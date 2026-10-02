@@ -19,8 +19,8 @@ import com.example.smartsolarmicrogridmobile.R
 import com.example.smartsolarmicrogridmobile.ReservationApi
 import com.example.smartsolarmicrogridmobile.ui.SessionViewModel
 import com.example.smartsolarmicrogridmobile.ui.button
+import com.example.smartsolarmicrogridmobile.ui.color
 import com.example.smartsolarmicrogridmobile.ui.label
-import com.example.smartsolarmicrogridmobile.ui.sectionTitle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -67,18 +67,28 @@ class ReservationFormFragment : Fragment() {
         val editing = editingReservationId != null
         titleText.text = if (editing) "Modify reservation" else "New reservation"
 
-        contentLayout.removeAllViews()
-
-        if (nodeJson != null || slotJson != null) {
-            contentLayout.sectionTitle("Location")
-            nodeJson?.let { contentLayout.label("Node: ${JSONObject(it).optString("name")}") }
-            slotJson?.let { contentLayout.label("Slot: ${JSONObject(it).optString("name")} (${JSONObject(it).opt("capacityKwh")} kWh capacity)") }
+        // The form fields live in the layout; only the read-only node and slot captions are filled in here.
+        nodeJson?.let { view.findViewById<TextView>(R.id.nodeLabel).text = "Node: ${JSONObject(it).optString("name")}" }
+        slotJson?.let {
+            val slot = JSONObject(it)
+            val capacity = slot.opt("capacityKwh")?.toString()?.takeIf { value -> value != "0" }
+            view.findViewById<TextView>(R.id.slotLabel).text = "Slot: ${slot.optString("name")}" + (capacity?.let { c -> " ($c kWh capacity)" } ?: "")
         }
 
-        contentLayout.sectionTitle("Details")
         directionGroup.check(R.id.directionDropOff)
+        // Editing: start from the saved booking instead of an empty form.
+        arguments?.getString("reservation")?.let { saved ->
+            val existing = JSONObject(saved)
+            directionGroup.check(if (existing.optString("direction") == "CHARGING") R.id.directionCharging else R.id.directionDropOff)
+            kwhInput.setText(existing.opt("requestedKwh")?.toString().orEmpty())
+            draftStart = runCatching { java.time.Instant.parse(existing.getString("startsAtUtc")).atZone(ZoneId.systemDefault()) }.getOrNull()
+            draftEnd = runCatching { java.time.Instant.parse(existing.getString("endsAtUtc")).atZone(ZoneId.systemDefault()) }.getOrNull()
+            val notice = contentLayout.label("Changes need at least 12 hours' notice before the current start time. The booking returns to pending approval after a change.", 14f,
+                requireContext().color(R.color.solar_muted_green))
+            contentLayout.removeView(notice)
+            contentLayout.addView(notice, 1)
+        }
 
-        contentLayout.sectionTitle("Schedule")
         startButton.setOnClickListener {
             pickDateTime(draftStart) { picked -> draftStart = picked; updateButtons() }
         }

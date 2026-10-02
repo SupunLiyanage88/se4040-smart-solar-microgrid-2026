@@ -29,6 +29,10 @@ import java.time.format.DateTimeFormatter
 
 class ReservationListFragment : Fragment() {
 
+    private companion object {
+        const val ROW_TAG = "reservation-row"
+    }
+
     private val sessionVm: SessionViewModel by activityViewModels()
     private lateinit var contentLayout: LinearLayout
     private lateinit var titleText: TextView
@@ -119,14 +123,15 @@ class ReservationListFragment : Fragment() {
             result.fold(
                 onSuccess = { rows ->
                     sessionVm.clearMessage()
-                    val childCount = contentLayout.childCount
-                    if (childCount > 7) {
-                        contentLayout.removeViews(7, childCount - 7)
+                    // Remove the rows from the previous load; the form fields above them stay in place.
+                    for (index in contentLayout.childCount - 1 downTo 0) {
+                        if (contentLayout.getChildAt(index).tag == ROW_TAG) contentLayout.removeViewAt(index)
                     }
                     val isOperator = session.user.optString("role") == "GRID_OPERATOR"
                     if (rows.length() == 0) {
-                        if (currentSearch.isNotBlank()) contentLayout.label("No matching bookings.", 14f, requireContext().color(R.color.solar_muted_green))
+                        val empty = if (currentSearch.isNotBlank()) contentLayout.label("No matching bookings.", 14f, requireContext().color(R.color.solar_muted_green))
                         else contentLayout.label("No reservations in this view.", 14f, requireContext().color(R.color.solar_muted_green))
+                        empty.tag = ROW_TAG
                     }
                     for (i in 0 until rows.length()) {
                         val r = rows.getJSONObject(i)
@@ -139,7 +144,7 @@ class ReservationListFragment : Fragment() {
                         contentLayout.button(caption, primary = false) {
                             val args = Bundle().apply { putString("reservationId", r.getString("id")) }
                             findNavController().navigate(R.id.action_reservationList_to_reservationDetail, args)
-                        }
+                        }.tag = ROW_TAG
                     }
                 },
                 onFailure = { sessionVm.setMessage(it.message) }

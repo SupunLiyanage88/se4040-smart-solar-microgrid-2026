@@ -81,6 +81,13 @@ class NearbyNodesActivity : FragmentActivity(), OnMapReadyCallback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_nearby_nodes)
+        // Keep the controls below the status bar and above the navigation bar (edge-to-edge rendering).
+        val content = findViewById<View>(android.R.id.content)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
         status = findViewById(R.id.statusText)
         detailCard = findViewById(R.id.detailCard)
         detailTitle = findViewById(R.id.detailTitle)

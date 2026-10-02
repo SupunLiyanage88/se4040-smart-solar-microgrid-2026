@@ -15,13 +15,18 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** SQLite keeps profile/reference data and an encrypted session; passwords are never persisted. */
-class SessionStore(context: Context) : SQLiteOpenHelper(context, "account.db", null, 1) {
+class SessionStore(context: Context) : SQLiteOpenHelper(context, "account.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE session (id INTEGER PRIMARY KEY CHECK(id=1), server TEXT NOT NULL, token TEXT NOT NULL, expires TEXT NOT NULL, profile TEXT NOT NULL)")
+        createNodeCache(db)
+    }
+    private fun createNodeCache(db: SQLiteDatabase) {
+        // Reference data only: last node list received from the API, for read-only offline browsing.
+        db.execSQL("CREATE TABLE IF NOT EXISTS node_cache (id TEXT PRIMARY KEY, name TEXT NOT NULL, json TEXT NOT NULL)")
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         // Future schema versions must supply an explicit migration to preserve profile data.
-        check(oldVersion == newVersion) { "Unsupported account database upgrade" }
+        if (oldVersion < 2) createNodeCache(db)
     }
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -54,5 +59,31 @@ class SessionStore(context: Context) : SQLiteOpenHelper(context, "account.db", n
             return AccountSession(it.getString(0), decrypt(it.getString(1)), it.getString(2), JSONObject(it.getString(3)))
         }
     }
-    fun clear() { writableDatabase.delete("session", null, null) }
+    fun clear() {
+        writableDatabase.delete("session", null, null)
+        writableDatabase.delete("node_cache", null, null)
+    }
+    /** Replace the cached node list with the latest one received from the API. */
+    fun saveNodes(nodes: org.json.JSONArray) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("node_cache", null, null)
+            for (i in 0 until nodes.length()) {
+                val node = nodes.getJSONObject(i)
+                db.insert("node_cache", null, ContentValues().apply {
+                    put("id", node.getString("id")); put("name", node.optString("name")); put("json", node.toString())
+                })
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+    /** Last saved node list, or an empty array if none was cached. */
+    fun loadNodes(): org.json.JSONArray {
+        val rows = org.json.JSONArray()
+        readableDatabase.rawQuery("SELECT json FROM node_cache ORDER BY name", null).use {
+            while (it.moveToNext()) rows.put(JSONObject(it.getString(0)))
+        }
+        return rows
+    }
 }

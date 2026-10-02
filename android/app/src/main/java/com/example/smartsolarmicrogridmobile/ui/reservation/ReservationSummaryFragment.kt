@@ -15,6 +15,7 @@ import com.example.smartsolarmicrogridmobile.R
 import com.example.smartsolarmicrogridmobile.ui.SessionViewModel
 import com.example.smartsolarmicrogridmobile.ui.addStatusPill
 import com.example.smartsolarmicrogridmobile.ui.button
+import com.example.smartsolarmicrogridmobile.ui.color
 import com.example.smartsolarmicrogridmobile.ui.label
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -81,6 +82,10 @@ class ReservationSummaryFragment : Fragment() {
         contentLayout.label("Energy: ${reservation.opt("requestedKwh")} kWh — $directionLabel")
         contentLayout.label("Status: $statusLabel")
 
+        if (status == "PENDING" || status == "APPROVED")
+            contentLayout.label("You can change or cancel this booking up to 12 hours before it starts.", 14f, requireContext().color(R.color.solar_muted_green))
+        else if (status == "CANCELLED")
+            contentLayout.label("This booking is cancelled and can no longer be changed.", 14f, requireContext().color(R.color.solar_muted_green))
         contentLayout.button("View booking") {
             val args = Bundle().apply { putString("reservationId", reservation.optString("id")) }
             findNavController().navigate(R.id.action_reservationSummary_to_reservationDetail, args)

@@ -195,6 +195,94 @@ async Task CheckNodes(string officer, string op, string prosumer)
     Check(!await database.GetCollection<BsonDocument>(MicrogridNodeService.CollectionName).Find(new BsonDocument("_id", disposable["id"]!.GetValue<string>())).AnyAsync(), "Unused node is deleted from MongoDB");
 }
 
+async Task CheckReservations(string officer, string op, string prosumer, string otherProsumer)
+{
+    // Exercise the 7-day horizon, 12-hour notice, capacity, approval and one-time QR completion rules over HTTP.
+    var offset = TimeSpan.FromHours(5.5); // Asia/Colombo has no daylight saving.
+    var day = DateTime.UtcNow.Add(offset).Date.AddDays(2);
+    DateTime At(double hour) => DateTime.SpecifyKind(day.AddHours(hour) - offset, DateTimeKind.Utc);
+    JsonObject Booking(string nodeId, string slotId, DateTime start, DateTime end, decimal kwh = 5m, string? nic = null)
+    {
+        var body = new JsonObject { ["nodeId"] = nodeId, ["slotId"] = slotId, ["direction"] = "DROP_OFF", ["requestedKwh"] = kwh,
+            ["startsAtUtc"] = start.ToString("o"), ["endsAtUtc"] = end.ToString("o") };
+        if (nic is not null) body["prosumerNic"] = nic;
+        return body;
+    }
+    var week = Enumerable.Range(0, 7).Select(d => new { dayOfWeek = d, opensAt = "00:00", closesAt = "23:59" }).ToArray();
+    var node = await Request("/nodes", HttpStatusCode.Created, "POST", new {
+        name = "Reservation Rule Hub", address = "Synthetic reservation address, Colombo", latitude = 6.9271, longitude = 79.8612,
+        powerCapacityKw = 25m, batterySlots = new[] { new { name = "Rule Battery", capacityKwh = 20m, isAvailable = true } }, schedule = week }, officer);
+    var nodeId = node["id"]!.GetValue<string>();
+    var slotId = node["batterySlots"]![0]!["id"]!.GetValue<string>();
+    var reservations = database.GetCollection<BsonDocument>(NodeReservationGuard.CollectionName);
+
+    await Request("/reservations", HttpStatusCode.Unauthorized);
+    await Request("/reservations", HttpStatusCode.BadRequest, "POST", Booking(nodeId, slotId, At(11), At(10)), prosumer);
+    await Request("/reservations", HttpStatusCode.BadRequest, "POST", Booking(nodeId, slotId, DateTime.UtcNow.AddHours(-3), DateTime.UtcNow.AddHours(-2)), prosumer);
+    await Request("/reservations", HttpStatusCode.BadRequest, "POST", Booking(nodeId, slotId, At(10).AddDays(6), At(11).AddDays(6)), prosumer);
+    await Request("/reservations", HttpStatusCode.BadRequest, "POST", Booking(nodeId, slotId, At(23.5), At(24.5)), prosumer);
+    await Request("/reservations", HttpStatusCode.Conflict, "POST", Booking(nodeId, slotId, At(10), At(11), 21m), prosumer);
+    await Request("/reservations", HttpStatusCode.Forbidden, "POST", Booking(nodeId, slotId, At(10), At(11), 5m, "200000000005"), prosumer);
+
+    var first = await Request("/reservations", HttpStatusCode.Created, "POST", Booking(nodeId, slotId, At(10), At(11)), prosumer);
+    var firstId = first["id"]!.GetValue<string>();
+    Check(first["status"]!.GetValue<string>() == "PENDING" && first["qrToken"] is null, "New reservation is pending with no QR token");
+    Check(await reservations.Find(new BsonDocument("_id", firstId)).AnyAsync()
+        && await database.GetCollection<BsonDocument>("energy_booking_slots").Find(new BsonDocument("ReservationId", firstId)).AnyAsync(),
+        "Reservation and booking slot persist in MongoDB");
+    await Request("/reservations", HttpStatusCode.Conflict, "POST", Booking(nodeId, slotId, At(10), At(11), 16m), prosumer);
+    await Request("/nodes/" + nodeId + "/status", HttpStatusCode.Conflict, "PATCH", new { isActive = false, revision = node["revision"]!.GetValue<long>() }, officer);
+    await Request("/reservations/" + firstId, HttpStatusCode.Forbidden, token: otherProsumer);
+    Check((await Request("/reservations?view=pending", HttpStatusCode.OK, token: otherProsumer)).AsArray().Count == 0, "A prosumer cannot list another prosumer's reservations");
+    await Request("/reservations?view=bogus", HttpStatusCode.BadRequest, token: prosumer);
+
+    await Request("/reservations/" + firstId + "/decision", HttpStatusCode.Forbidden, "POST", new { decision = "APPROVE" }, prosumer);
+    await Request("/reservations/" + firstId + "/decision", HttpStatusCode.BadRequest, "POST", new { decision = "MAYBE" }, op);
+    var approved = await Request("/reservations/" + firstId + "/decision", HttpStatusCode.OK, "POST", new { decision = "APPROVE" }, op);
+    Check(approved["status"]!.GetValue<string>() == "APPROVED" && approved["qrToken"] is null, "Approval does not reveal the QR token to staff");
+    await Request("/reservations/" + firstId + "/decision", HttpStatusCode.Conflict, "POST", new { decision = "REJECT" }, op);
+    var owned = await Request("/reservations/" + firstId, HttpStatusCode.OK, token: prosumer);
+    var qr = owned["qrToken"]?.GetValue<string>();
+    Check(qr is { Length: 64 }, "Owner receives a 64-character QR token after approval");
+    Check((await Request("/reservations/" + firstId, HttpStatusCode.OK, token: op))["qrToken"] is null, "Staff never receive the QR token");
+
+    await Request("/reservations/complete", HttpStatusCode.Forbidden, "POST", new { qrToken = qr }, prosumer);
+    await Request("/reservations/complete", HttpStatusCode.BadRequest, "POST", new { qrToken = "short" }, op);
+    await Request("/reservations/complete", HttpStatusCode.Conflict, "POST", new { qrToken = new string('a', 64) }, op);
+    var completed = await Request("/reservations/complete", HttpStatusCode.OK, "POST", new { qrToken = qr }, op);
+    Check(completed["status"]!.GetValue<string>() == "COMPLETED", "Operator completes a transfer from a valid QR token");
+    await Request("/reservations/complete", HttpStatusCode.Conflict, "POST", new { qrToken = qr }, op);
+    Check((await Request("/reservations/" + firstId, HttpStatusCode.OK, token: prosumer))["qrToken"] is null, "A used QR token cannot be reused");
+    await Request("/reservations/" + firstId + "/cancel", HttpStatusCode.Conflict, "POST", token: prosumer);
+    Check((await Request("/reservations?view=history", HttpStatusCode.OK, token: prosumer)).AsArray().Any(r => r!["id"]!.GetValue<string>() == firstId), "Completed reservations appear in history");
+
+    var rejected = await Request("/reservations", HttpStatusCode.Created, "POST", Booking(nodeId, slotId, At(12), At(13)), prosumer);
+    var rejectedId = rejected["id"]!.GetValue<string>();
+    var summary = await Request("/reservations/summary", HttpStatusCode.OK, token: prosumer);
+    Check(summary["pendingCount"]!.GetValue<long>() == 1 && summary["approvedFutureCount"]!.GetValue<long>() == 0, "Summary counts pending and approved future reservations");
+    Check((await Request("/reservations/" + rejectedId + "/decision", HttpStatusCode.OK, "POST", new { decision = "REJECT" }, op))["status"]!.GetValue<string>() == "REJECTED", "Operator can reject a pending reservation");
+
+    var editable = await Request("/reservations", HttpStatusCode.Created, "POST", Booking(nodeId, slotId, At(14), At(15)), prosumer);
+    var editableId = editable["id"]!.GetValue<string>();
+    await Request("/reservations/" + editableId + "/decision", HttpStatusCode.OK, "POST", new { decision = "APPROVE" }, op);
+    Check((await Request("/reservations/" + editableId, HttpStatusCode.OK, token: prosumer))["qrToken"] is not null, "Approved reservation has a QR token before an update");
+    var changed = await Request("/reservations/" + editableId, HttpStatusCode.OK, "PUT", Booking(nodeId, slotId, At(16), At(17), 6m), prosumer);
+    Check(changed["status"]!.GetValue<string>() == "PENDING" && changed["requestedKwh"]!.GetValue<decimal>() == 6m, "An update with enough notice returns the booking to pending");
+    Check((await Request("/reservations/" + editableId, HttpStatusCode.OK, token: prosumer))["qrToken"] is null, "An update revokes the previous QR token");
+    var cancelled = await Request("/reservations/" + editableId + "/cancel", HttpStatusCode.OK, "POST", token: prosumer);
+    Check(cancelled["status"]!.GetValue<string>() == "CANCELLED", "A cancellation with enough notice succeeds");
+    await Request("/reservations/" + editableId + "/cancel", HttpStatusCode.Conflict, "POST", token: prosumer);
+
+    // A booking that starts soon is inside the 12-hour notice window and can no longer be changed.
+    var soon = DateTime.UtcNow.AddHours(6);
+    if (soon.Add(offset).Hour is >= 22 or < 1) soon = soon.AddHours(4);
+    soon = new DateTime(soon.Year, soon.Month, soon.Day, soon.Hour, 0, 0, DateTimeKind.Utc).AddHours(1);
+    var urgent = await Request("/reservations", HttpStatusCode.Created, "POST", Booking(nodeId, slotId, soon, soon.AddHours(1)), prosumer);
+    var urgentId = urgent["id"]!.GetValue<string>();
+    await Request("/reservations/" + urgentId, HttpStatusCode.Conflict, "PUT", Booking(nodeId, slotId, At(18), At(19)), prosumer);
+    await Request("/reservations/" + urgentId + "/cancel", HttpStatusCode.Conflict, "POST", token: prosumer);
+}
+
 try
 {
     // Migration keeps the original documents and normalizes identities/legacy role names.
@@ -295,7 +383,8 @@ try
     await Request("/user", HttpStatusCode.Unauthorized, token: new JwtSecurityTokenHandler().WriteToken(expired));
     await Request("/user", HttpStatusCode.Unauthorized, token: "invalid.jwt.token");
     await CheckNodes(officer, op, renewed);
-    Console.WriteLine($"Completed {checks} authentication and node integration checks.");
+    await CheckReservations(officer, op, renewed, await Login("managed@example.test"));
+    Console.WriteLine($"Completed {checks} authentication, node and reservation integration checks.");
     var stopArgument = args.FirstOrDefault(value => value.StartsWith("--serve-until="));
     if (stopArgument is not null)
     {

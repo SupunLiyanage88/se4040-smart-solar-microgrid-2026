@@ -12,6 +12,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.example.smartsolarmicrogridmobile.NodeApi
 import com.example.smartsolarmicrogridmobile.R
+import com.example.smartsolarmicrogridmobile.SessionStore
 import com.example.smartsolarmicrogridmobile.ui.SessionViewModel
 import com.example.smartsolarmicrogridmobile.ui.button
 import com.example.smartsolarmicrogridmobile.ui.color
@@ -55,11 +56,17 @@ class NodePickerFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching { NodeApi(session.server).list(session.token) }
+                    .onSuccess { fresh -> runCatching { SessionStore(requireContext()).use { it.saveNodes(fresh) } } }
             }
             sessionVm.setBusy(false)
-            result.fold(
+            // Offline fallback: show the last node list saved in SQLite, but only for connection failures.
+            val cached = if (result.isFailure && (result.exceptionOrNull() !is com.example.smartsolarmicrogridmobile.ApiFailure))
+                withContext(Dispatchers.IO) { runCatching { SessionStore(requireContext()).use { it.loadNodes() } }.getOrNull() }
+                    ?.takeIf { it.length() > 0 } else null
+            (if (cached != null) Result.success(cached) else result).fold(
                 onSuccess = { nodes ->
-                    sessionVm.clearMessage()
+                    if (cached != null) sessionVm.setMessage("Offline: showing the last saved node list. Reservations still need a connection.")
+                    else sessionVm.clearMessage()
                     contentLayout.removeAllViews()
                     val ctx = requireContext()
                     if (nodes.length() == 0) {
