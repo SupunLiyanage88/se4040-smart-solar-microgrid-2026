@@ -28,7 +28,7 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
-        buildConfigField("String", "API_BASE_URL", "\"https://localhost:7086\"")
+        buildConfigField("String", "API_BASE_URL", "\"http://13.233.15.160:8080\"")
         // Google Maps key stays outside Git: set MAPS_API_KEY in android/local.properties
         // (gitignored) or as a MAPS_API_KEY environment variable. Empty builds compile;
         // the map tiles simply render blank until a key is supplied.
@@ -40,7 +40,6 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:5086\"")
         }
         release {
             optimization {
