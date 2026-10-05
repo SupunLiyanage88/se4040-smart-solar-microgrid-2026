@@ -14,8 +14,9 @@ class AccountApi(private val server: String) {
     init {
         val uri = URI(server)
         require(uri.host != null && uri.userInfo == null && uri.query == null && uri.fragment == null &&
-            (uri.scheme == "https" || (BuildConfig.DEBUG && uri.scheme == "http"))) {
-            "Enter a valid HTTPS service address. HTTP is allowed only in debug builds."
+            (uri.scheme == "https" || (uri.scheme == "http" &&
+                (BuildConfig.DEBUG || server.trimEnd('/') == BuildConfig.API_BASE_URL)))) {
+            "Enter a valid HTTPS service address or the configured backend address."
         }
     }
 
