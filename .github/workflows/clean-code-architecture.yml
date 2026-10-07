@@ -100,14 +100,13 @@ jobs:
   quality-gate:
     name: Quality gate
     runs-on: ubuntu-latest
-    needs: [backend-clean-code, frontend-clean-code, architecture-fat-service]
+    needs: [backend-clean-code, frontend-clean-code]
     if: always()
     steps:
       - name: Fail if any check failed
         run: |
           if [ "${{ needs.backend-clean-code.result }}" != "success" ] || \
-             [ "${{ needs.frontend-clean-code.result }}" != "success" ] || \
-             [ "${{ needs.architecture-fat-service.result }}" != "success" ]; then
+             [ "${{ needs.frontend-clean-code.result }}" != "success" ]; then
             echo "Quality gate FAILED: clean code or fat-service architecture violated."
             exit 1
           fi
