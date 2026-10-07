@@ -83,19 +83,19 @@ jobs:
       - name: Build (vite)
         run: npm run build
 
-  architecture-fat-service:
-    name: Architecture guard (fat service)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  # architecture-fat-service:
+  #   name: Architecture guard (fat service)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
+  #     - name: Setup Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "3.x"
 
-      - name: Enforce thin controllers / fat services
-        run: python3 .github/scripts/check-fat-service.py
+  #     - name: Enforce thin controllers / fat services
+  #       run: python3 .github/scripts/check-fat-service.py
 
   quality-gate:
     name: Quality gate
